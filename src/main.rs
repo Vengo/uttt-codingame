@@ -1,5 +1,5 @@
-use std::io;
 use std::collections::HashMap;
+use std::io;
 
 const TTT_BOARD_WIDTH: usize = 3;
 
@@ -13,50 +13,225 @@ const MOVE_ORDERING: [u8; 9] = [4,0,2,6,3,5,8,1,7];
 //const MOVE_ORDERING: [u8; 9] = [1,3,5,7,8,4,6,2,0];
 const CAT: u16 = (1<<9) -1;
 
+#[derive(Debug)]
 struct TTTBoard{
     xbb: u16,
     obb: u16,
     x_to_move: bool,
 }
 
+#[derive(Debug)]
 struct TTTMove {
     x_to_move: bool,
     move_index: u8,
 }
 
+struct HashState {
+    alpha: i8,
+    beta: i8,
+    depth: u8,
+}
+
+//impl Default for HashState {
+//    fn default() -> Self {HashState{alpha: std::i8::MIN, beta: std::i8::MAX, depth: 0}}
+//}
 
 impl TTTBoard{
-    fn alpha_beta_search(&mut self, depth: &u8, alpha: &i8, beta: &i8) -> (i8,u8) {
-        ///from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
-        /// function alphabeta(node, depth, α, β, maximizingPlayer) is
-        ///    if depth = 0 or node is a terminal node then
-        ///        return the heuristic value of node
-        ///    if maximizingPlayer then
-        ///        value := −∞
-        ///        for each child of node do
-        ///            value := max(value, alphabeta(child, depth − 1, α, β, FALSE))
-        ///            α := max(α, value)
-        ///            if α ≥ β then
-        ///                break (* β cut-off *)
-        ///        return value
-        ///    else
-        ///        value := +∞
-        ///        for each child of node do
-        ///            value := min(value, alphabeta(child, depth − 1, α, β, TRUE))
-        ///            β := min(β, value)
-        ///            if α ≥ β then
-        ///                break (* α cut-off *)
-        ///        return value
+    fn alpha_beta_search(&mut self, depth: u8, alpha: i8, beta: i8, mut transpositions: &mut HashMap<u32, HashState>) -> (i8, u8) {
+        // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
 
-        match (*depth, self.score()) {
-            (a_depth, a_score ) if ((a_score == 127) & self.x_to_move) => {
-                return (0,255);
-            }
-            _ => panic!("alpha_beta search isn't really implemented yet..."),
+        let mut node_alpha = alpha;
+        let mut node_beta = beta;
+        let node_hash = self.hash_val();
+        let mut early_return = false;
+
+        let mut new_score = std::i8::MIN;
+        let mut move_index = std::u8::MAX;
+
+        match self.get_win_state() {
+            TTTState::XWin => {
+                new_score = std::i8::MAX;
+                move_index = std::u8::MAX;
+                let inserted_state = HashState { alpha: new_score, beta: new_score, depth: std::u8::MAX };
+                transpositions.insert(node_hash, inserted_state);
+                early_return = true;
+            },
+            TTTState::OWin => {
+                new_score = std::i8::MIN;
+                move_index = std::u8::MAX;
+                let inserted_state = HashState { alpha: new_score, beta: new_score, depth: std::u8::MAX };
+                transpositions.insert(node_hash, inserted_state);
+                early_return = true;
+            },
+            TTTState::Cat => {
+                new_score = 0i8;
+                move_index = std::u8::MAX;
+                let inserted_state = HashState { alpha: new_score, beta: new_score, depth: std::u8::MAX };
+                transpositions.insert(node_hash, inserted_state);
+                early_return = true;
+            },
+            TTTState::Unresolved => {
+                if depth > 0 {
+                    match transpositions.get(&node_hash) {
+                        Some(hashed_node) => {
+                            if hashed_node.depth >= depth {
+                                node_alpha = hashed_node.alpha;
+                                node_beta = hashed_node.beta;
+                            }
+                        },
+                        None => {},
+                    }
+                } else {
+                    new_score = if self.x_to_move { 1 } else { -1 };
+                    eprintln!("breaking early from unresolved");
+                    early_return = true;
+                }
+            },
+        }
+        if early_return {
+            return (new_score, move_index)
         }
 
-        eprintln!("testing build");
-        return (0,255);
+        match (depth, self.score()) {
+            (_a_depth, _a_score) if self.x_to_move => {
+                //        value := −∞
+                for each_move in self.get_legal_moves() {
+                    //        for each child of node do
+                    self.make_move(&each_move);
+//                    eprintln!("Board after {} move:\n{}\nvalid? {}",x_to_move,self.display(),self.is_valid());
+//                    let new_hash = self.hash_val();
+                    //            value := max(value, alphabeta(child, depth − 1, α, β, FALSE))
+                    //            α := max(α, value)
+                    //            if α ≥ β then
+                    //                break (* β cut-off *)
+                    //        ret value
+
+                    //attempt to recover node statistics from transposition table
+//                    let (move_score, _move_index) = match transpositions.get(&new_hash) {
+//                        Some(hash_value) if *hash_value == std::i8::MAX => {
+//                            new_score = *hash_value;
+//                            move_index = each_move.move_index;
+//                            self.unmake_move(&each_move);
+//                            eprintln!("Board after unmade move 1:\n{}",self.display());
+//                            break;
+//                        },
+//                        Some(hash_value) => {
+//                            (hash_value.clone(), each_move.move_index)
+//                        },
+//                        None => {
+//                            eprintln!("going deeper than remaining depth {}! ({})", depth,depth-1);
+//                            let ab_val = self.alpha_beta_search((depth-1), node_alpha, node_beta, &mut transpositions);
+//                            eprintln!("returned {:?} from alpha_beta_search",ab_val);
+//                            ab_val
+//                        },
+//                    };
+                    let (move_score, _move_index) = {
+//                        eprintln!("going deeper from o to move");
+                        self.alpha_beta_search(depth - 1, node_alpha, node_beta, &mut transpositions)
+                    };
+
+                    match move_score {
+                        std::i8::MAX => {
+//                            eprintln!("matched intmax");
+                            new_score = move_score;
+                            move_index = each_move.move_index;
+                            node_alpha = move_score;
+                            self.unmake_move(&each_move);
+//                            eprintln!("Board after unmade move 2:\n{}",self.display());
+                            break;
+//                            self.unmake_move(&each_move);
+//                            return (move_score, each_move.move_index);
+                        },
+                        move_score if move_score > new_score => {
+//                            eprintln!("matched new alpha");
+                            new_score = move_score;
+                            move_index = each_move.move_index;
+                            node_alpha = node_alpha.max(move_score);
+                            if node_alpha >= node_beta {
+                                self.unmake_move(&each_move);
+//                                eprintln!("Board after unmade move 3:\n{}",self.display());
+                                break;
+                            } else {
+                                self.unmake_move(&each_move);
+//                                eprintln!("Board after unmade move 3 no alpha:\n{}",self.display());
+                            }
+                        },
+                        _move_score => {
+                            if move_index == std::u8::MAX {
+                                move_index = each_move.move_index;
+                            };
+                            self.unmake_move(&each_move);
+//                            eprintln!("Board after unmade move 4:\n{}",self.display());
+                            //pass
+                        },
+                    };
+//                    self.unmake_move(&each_move);
+                };
+                let inserted_state = HashState { alpha: node_alpha, beta: node_beta, depth };
+                transpositions.insert(node_hash, inserted_state);
+                return (new_score, move_index);
+            },
+            (_a_depth, _a_score) if !self.x_to_move => {
+//                eprintln!("matched not x_to_move");
+                //        value := +∞
+                let mut new_score = std::i8::MAX;
+                let mut move_index = std::u8::MAX;
+
+                //        for each child of node do
+                for each_move in self.get_legal_moves() {
+                    //            value := min(value, alphabeta(child, depth − 1, α, β, TRUE))
+                    //            β := min(β, value)
+                    //            if α ≥ β then
+                    //                break (* α cut-off *)
+                    //        return value
+                    self.make_move(&each_move);
+//                    eprintln!("Board after made move:\n{}\nvalid? {}",self.display(),self.is_valid());
+//                    let new_hash = self.hash_val();
+
+                    let (move_score, _move_index) = {
+                        self.alpha_beta_search(depth - 1, node_alpha, node_beta, &mut transpositions)
+                    };
+
+
+                    match move_score {
+                        std::i8::MIN => {
+                            self.unmake_move(&each_move);
+                            new_score = move_score;
+                            move_index = each_move.move_index;
+                            break;
+                        },
+                        move_score if move_score < new_score => {
+                            new_score = move_score;
+                            move_index = each_move.move_index;
+                            node_beta = node_beta.min(move_score);
+                            if node_alpha >= node_beta {
+                                self.unmake_move(&each_move);
+                                break;
+                            } else {
+                                self.unmake_move(&each_move);
+                            }
+                        },
+                        _move_score => {
+                            if move_index == std::u8::MAX {
+                                move_index = each_move.move_index;
+                            };
+                            self.unmake_move(&each_move);
+                        },
+                    };
+                };
+
+                let inserted_state = HashState { alpha: node_alpha, beta: node_beta, depth };
+                transpositions.insert(node_hash, inserted_state);
+                return (new_score, move_index);
+            },
+            other_stuff => {
+                //    else panic
+                panic!("encountered unhandled stuff in alpha_beta search: {:?}", other_stuff);
+            },
+        }
+
+//        eprintln!("testing build");
+//        return (0,std::u8::MAX);
     }
 
     fn hash_val(&self) -> u32 {
@@ -301,7 +476,8 @@ fn main() {
         eprintln!("start of turn board state was:\n{}",ttt_board.display());
         match (opponent_row,opponent_col) {
             (-1,-1) => {
-                let (best_value, best_action) = ttt_board.min_max_hash(&mut transposition_table);
+                let (best_value, best_action) = ttt_board.alpha_beta_search(
+                    10, std::i8::MIN, std::i8::MAX, &mut transposition_table);
                 eprintln!("best value: {}\nbest action: {}",best_value,best_action);
                 let my_move = TTTMove{move_index: best_action, x_to_move:ttt_board.x_to_move};
                 ttt_board.make_move(&my_move);
@@ -314,9 +490,12 @@ fn main() {
                 ttt_board.make_move(&opp_move);
                 eprintln!("board after opponent move was:\n{}",ttt_board.display());
 
-                let (best_value, best_action) = ttt_board.min_max_hash(&mut transposition_table);
+                let (best_value, best_action) = ttt_board.alpha_beta_search(
+                    10, std::i8::MIN, std::i8::MAX, &mut transposition_table);
                 let my_move = TTTMove{move_index: best_action, x_to_move:ttt_board.x_to_move};
                 ttt_board.make_move(&my_move);
+
+                assert_eq!(true, ttt_board.is_valid());
 
                 eprintln!("best value: {}\nbest action: {}",best_value,best_action);
                 println!("{} {}",best_action/3, best_action%3);
@@ -345,8 +524,10 @@ fn main() {
 
 #[cfg(test)]
 mod test{
-    use crate::{TTTBoard, TTTMove, TTTState, RESULT_MASKS};
     use std::collections::HashMap;
+    use std::time;
+
+    use crate::{RESULT_MASKS, TTTBoard, TTTMove, TTTState};
 
     #[test]
     fn testprint() {
@@ -558,6 +739,8 @@ mod test{
         assert_eq!((0, 4),ttt_board.min_max_hash(&mut ttable));
         assert_eq!(ttable.len(),1217);
 
+        let table_entry = ttable.entry(129);
+
         while ttt_board.get_legal_moves().len() > 0 {
             let (board_val, move_index) = ttt_board.min_max_hash(&mut ttable);
             let a_move = TTTMove{ move_index, x_to_move: ttt_board.x_to_move};
@@ -565,5 +748,75 @@ mod test{
             assert_eq!(board_val,0);
         }
         assert_eq!(ttt_board.display(),"OOX\nXXO\nOXX");
+
+        assert_eq!(TTTState::Cat, ttt_board.get_win_state());
+    }
+
+    #[test]
+    fn alpha_beta_hash_test_2() {
+        let mut ttt_board = TTTBoard {
+            xbb: 0,
+            obb: 0,
+            x_to_move: true,
+        };
+
+        let mut ttable = HashMap::new();
+        let (board_val, move_index) = ttt_board.alpha_beta_search(
+            10, std::i8::MIN, std::i8::MAX, &mut ttable,
+        );
+        assert_eq!((0, 4), (board_val, move_index));
+
+//        let now_instant = time::Instant::now();
+        assert_eq!((0, 4), ttt_board.alpha_beta_search(
+            10, std::i8::MIN, std::i8::MAX, &mut ttable,
+        ));
+//        assert_eq!(now_instant.elapsed().as_millis(),10);
+        assert_eq!(1161, ttable.len());
+
+        while ttt_board.get_legal_moves().len() > 0 {
+            let (board_val, move_index) = ttt_board.alpha_beta_search(
+                10, std::i8::MIN, std::i8::MAX, &mut ttable,
+            );
+            let a_move = TTTMove { move_index, x_to_move: ttt_board.x_to_move };
+//            eprintln!("board:\n{}\nnext move:{:?}",ttt_board.display(),a_move);
+            assert_eq!(true, ttt_board.is_valid());
+
+            ttt_board.make_move(&a_move);
+        }
+
+        assert_eq!(ttt_board.display(), "OOX\nXXO\nOXX");
+    }
+
+    #[test]
+    fn alpha_beta_hash_test_1() {
+        // 256 128 64 32 16 8 4 2 1
+        // 1 2 4 8 16 32 64 128 256
+        let mut ttt_board = TTTBoard {
+            xbb: 0,
+            obb: 44,
+            x_to_move: true,
+        };
+
+        let mut ttable = HashMap::new();
+        let (board_val, move_index) = ttt_board.alpha_beta_search(
+            10, std::i8::MIN, std::i8::MAX, &mut ttable,
+        );
+        assert_eq!(-128, board_val);
+
+
+//        let table_entry = ttable.entry(129);
+        while (ttt_board.get_legal_moves().len() > 0) & (ttt_board.get_win_state() == TTTState::Unresolved) {
+            let (board_val, move_index) = ttt_board.alpha_beta_search(
+                10, std::i8::MIN, std::i8::MAX, &mut ttable,
+            );
+            let a_move = TTTMove { move_index, x_to_move: ttt_board.x_to_move };
+            eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
+            assert_eq!(true, ttt_board.is_valid());
+
+            ttt_board.make_move(&a_move);
+//            assert_eq!(board_val,0);
+        }
+
+        assert_eq!(ttt_board.display(), "O.O\nOXO\nX.O");
     }
 }

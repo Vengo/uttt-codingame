@@ -98,62 +98,32 @@ impl TTTBoard{
                 for each_move in self.get_legal_moves() {
                     //        for each child of node do
                     self.make_move(&each_move);
-//                    eprintln!("Board after {} move:\n{}\nvalid? {}",x_to_move,self.display(),self.is_valid());
-//                    let new_hash = self.hash_val();
                     //            value := max(value, alphabeta(child, depth − 1, α, β, FALSE))
                     //            α := max(α, value)
                     //            if α ≥ β then
                     //                break (* β cut-off *)
-                    //        ret value
-
-                    //attempt to recover node statistics from transposition table
-//                    let (move_score, _move_index) = match transpositions.get(&new_hash) {
-//                        Some(hash_value) if *hash_value == std::i8::MAX => {
-//                            new_score = *hash_value;
-//                            move_index = each_move.move_index;
-//                            self.unmake_move(&each_move);
-//                            eprintln!("Board after unmade move 1:\n{}",self.display());
-//                            break;
-//                        },
-//                        Some(hash_value) => {
-//                            (hash_value.clone(), each_move.move_index)
-//                        },
-//                        None => {
-//                            eprintln!("going deeper than remaining depth {}! ({})", depth,depth-1);
-//                            let ab_val = self.alpha_beta_search((depth-1), node_alpha, node_beta, &mut transpositions);
-//                            eprintln!("returned {:?} from alpha_beta_search",ab_val);
-//                            ab_val
-//                        },
-//                    };
+                    //        return value
                     let (move_score, _move_index) = {
-//                        eprintln!("going deeper from o to move");
                         self.alpha_beta_search(depth - 1, node_alpha, node_beta, &mut transpositions)
                     };
 
                     match move_score {
                         std::i8::MAX => {
-//                            eprintln!("matched intmax");
                             new_score = move_score;
                             move_index = each_move.move_index;
                             node_alpha = move_score;
                             self.unmake_move(&each_move);
-//                            eprintln!("Board after unmade move 2:\n{}",self.display());
                             break;
-//                            self.unmake_move(&each_move);
-//                            return (move_score, each_move.move_index);
                         },
                         move_score if move_score > new_score => {
-//                            eprintln!("matched new alpha");
                             new_score = move_score;
                             move_index = each_move.move_index;
                             node_alpha = node_alpha.max(move_score);
                             if node_alpha >= node_beta {
                                 self.unmake_move(&each_move);
-//                                eprintln!("Board after unmade move 3:\n{}",self.display());
                                 break;
                             } else {
                                 self.unmake_move(&each_move);
-//                                eprintln!("Board after unmade move 3 no alpha:\n{}",self.display());
                             }
                         },
                         _move_score => {
@@ -161,18 +131,14 @@ impl TTTBoard{
                                 move_index = each_move.move_index;
                             };
                             self.unmake_move(&each_move);
-//                            eprintln!("Board after unmade move 4:\n{}",self.display());
-                            //pass
                         },
                     };
-//                    self.unmake_move(&each_move);
                 };
                 let inserted_state = HashState { alpha: node_alpha, beta: node_beta, depth };
                 transpositions.insert(node_hash, inserted_state);
                 return (new_score, move_index);
             },
             (_a_depth, _a_score) if !self.x_to_move => {
-//                eprintln!("matched not x_to_move");
                 //        value := +∞
                 let mut new_score = std::i8::MAX;
                 let mut move_index = std::u8::MAX;
@@ -185,13 +151,10 @@ impl TTTBoard{
                     //                break (* α cut-off *)
                     //        return value
                     self.make_move(&each_move);
-//                    eprintln!("Board after made move:\n{}\nvalid? {}",self.display(),self.is_valid());
-//                    let new_hash = self.hash_val();
 
                     let (move_score, _move_index) = {
                         self.alpha_beta_search(depth - 1, node_alpha, node_beta, &mut transpositions)
                     };
-
 
                     match move_score {
                         std::i8::MIN => {
@@ -225,13 +188,9 @@ impl TTTBoard{
                 return (new_score, move_index);
             },
             other_stuff => {
-                //    else panic
                 panic!("encountered unhandled stuff in alpha_beta search: {:?}", other_stuff);
             },
         }
-
-//        eprintln!("testing build");
-//        return (0,std::u8::MAX);
     }
 
     fn hash_val(&self) -> u32 {
@@ -770,9 +729,11 @@ mod test{
         assert_eq!((0, 4), ttt_board.alpha_beta_search(
             10, std::i8::MIN, std::i8::MAX, &mut ttable,
         ));
-//        assert_eq!(now_instant.elapsed().as_millis(),10);
+//        assert_eq!(now_instant.elapsed().as_micros(),10);
         assert_eq!(1161, ttable.len());
 
+
+//        let now_instant = time::Instant::now();
         while ttt_board.get_legal_moves().len() > 0 {
             let (board_val, move_index) = ttt_board.alpha_beta_search(
                 10, std::i8::MIN, std::i8::MAX, &mut ttable,
@@ -783,6 +744,7 @@ mod test{
 
             ttt_board.make_move(&a_move);
         }
+//        assert_eq!(now_instant.elapsed().as_micros(),10);
 
         assert_eq!(ttt_board.display(), "OOX\nXXO\nOXX");
     }

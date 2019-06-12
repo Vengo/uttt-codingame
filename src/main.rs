@@ -1204,7 +1204,7 @@ mod uttt_trait_solving {
             };
 
             let mut move_count = 0;
-            for i in 0..2500000 {
+            for i in 0..2500000u64 {
                 while x.get_win_state() == GameResult::Unresolved {
 //                eprintln!("{}", x.display());
                     let moves = x.get_legal_moves();

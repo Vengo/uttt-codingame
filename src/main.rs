@@ -1,8 +1,9 @@
-use std::collections::HashMap;
-use std::io;
+//use std::collections::HashMap;
+//use std::io;
 
 mod game_solving {
     use std::collections::HashMap;
+    use std::hash::Hash;
 
     pub struct HashState {
         alpha: i8,
@@ -24,21 +25,17 @@ mod game_solving {
         pub move_index: u8,
     }
 
-    pub struct GameUnmove {
-        pub x_to_move: bool,
-        pub move_index: u8,
-    }
-
-    pub trait AlphaBetaTTCompatible {
-        fn hash_val(&self) -> u32;
+    pub trait AlphaBetaTTCompatible<T: Hash + Eq + Copy, Unmove> {
+        fn hash_val(&self) -> T;
         fn get_win_state(&self) -> GameResult;
         fn x_to_move(&self) -> bool;
-        fn make_move(&mut self, a_move: &GameMove) -> GameUnmove;
-        fn unmake_move(&mut self, a_move: GameUnmove);
+        fn make_move(&mut self, a_move: &GameMove) -> Unmove;
+        fn unmake_move(&mut self, a_move: Unmove);
         fn score(&self) -> i8;
         fn get_legal_moves(&self) -> Vec<GameMove>;
         fn display(&self) -> String;
         fn is_valid(&self) -> bool;
+//        fn compatible_transposition_table() -> HashMap<Self::HashKeyType,HashState>;
     }
 
     const LT: fn(i8, i8) -> bool = |a, b| a.lt(&b);
@@ -47,8 +44,10 @@ mod game_solving {
     const GT: fn(i8, i8) -> bool = |a, b| a.gt(&b);
     const MAX: fn(i8, i8) -> i8 = |a, b| a.max(b);
 
-    pub fn alpha_beta_search(board: &mut impl AlphaBetaTTCompatible, depth: u8, alpha: i8, beta: i8, transpositions: &mut HashMap<u32, HashState>) -> (i8, u8) {
+    pub fn alpha_beta_search<T: Hash + Eq + Copy, Unmove>(board: &mut impl AlphaBetaTTCompatible<T, Unmove>, depth: u8, alpha: i8, beta: i8,
+                                                          transpositions: &mut HashMap<T, HashState>) -> (i8, u8) {
         // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
+
 
         let mut node_alpha = alpha;
         let mut node_beta = beta;
@@ -108,7 +107,14 @@ mod game_solving {
 
         let mut new_score = start_val;
         let moves = board.get_legal_moves();
-        let mut move_index = moves[0].move_index;
+
+
+        let mut move_index = 0;
+        if moves.len() == 0 {
+            return (0, 255)
+        } else {
+            move_index = moves[0].move_index;
+        }
 
         for each_move in moves.iter() {
             let unmake_instructions = board.make_move(&each_move);
@@ -143,13 +149,13 @@ mod game_solving {
         let inserted_state = HashState { alpha: node_alpha, beta: node_beta, depth };
         transpositions.insert(node_hash, inserted_state);
 
-        let side_moved = if board.x_to_move() { "X" } else { "O" };
+//        let side_moved = if board.x_to_move() { "X" } else { "O" };
         return (new_score, move_index);
     }
 }
 
 mod ttt_trait_solving {
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, GameUnmove};
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
 
     // tictactoe constants
     const TTT_BOARD_WIDTH: usize = 3;
@@ -165,7 +171,13 @@ mod ttt_trait_solving {
         pub x_to_move: bool,
     }
 
-    impl AlphaBetaTTCompatible for TTTBoard {
+
+    pub struct TTTUnmove {
+        pub x_to_move: bool,
+        pub move_index: u8,
+    }
+
+    impl AlphaBetaTTCompatible<u32, TTTUnmove> for TTTBoard {
         fn hash_val(&self) -> u32 {
             let base_hash = (self.xbb as u32) << 16 | (self.obb as u32);
             return match self.x_to_move {
@@ -191,10 +203,10 @@ mod ttt_trait_solving {
             return self.x_to_move;
         }
 
-        fn make_move(&mut self, a_move: &GameMove) -> GameUnmove {
+        fn make_move(&mut self, a_move: &GameMove) -> TTTUnmove {
 //            pub x_to_move: bool,
 //            pub move_index: u8,
-            let unmove = GameUnmove { x_to_move: self.x_to_move, move_index: a_move.move_index };
+            let unmove = TTTUnmove { x_to_move: self.x_to_move, move_index: a_move.move_index };
 
             match a_move {
                 GameMove { x_to_move: true, move_index } => {
@@ -206,17 +218,16 @@ mod ttt_trait_solving {
                     self.x_to_move = true;
                 },
             }
-//            assert_eq!(true, self.is_valid());
             return unmove;
         }
 
-        fn unmake_move(&mut self, unmove: GameUnmove) {
+        fn unmake_move(&mut self, unmove: TTTUnmove) {
             match unmove {
-                GameUnmove { x_to_move: true, move_index } => {
+                TTTUnmove { x_to_move: true, move_index } => {
                     self.xbb ^= 1u16 << move_index;
                     self.x_to_move = true;
                 },
-                GameUnmove { x_to_move: false, move_index } => {
+                TTTUnmove { x_to_move: false, move_index } => {
                     self.obb ^= 1u16 << move_index;
                     self.x_to_move = false;
                 },
@@ -272,6 +283,14 @@ mod ttt_trait_solving {
             // there are more ways to invalidate a board than are checked here
             return (self.obb & self.xbb) == 0;
         }
+
+//        fn update_hash(&self, transposition_table: &mut HashMap<Self::HashKeyType,HashState>) {
+//            panic!("undefined behavior in update_transpositions!");
+//        }
+//
+//        fn retrieve_hash(&self, transposition_table: &mut HashMap<Self::HashKeyType,HashState>) {
+//            panic!("undefined behavior in update_transpositions!");
+//        }
     }
 
     #[cfg(test)]
@@ -280,9 +299,9 @@ mod ttt_trait_solving {
         use std::time;
 
         use crate::game_solving::{
-            alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, GameUnmove, HashState};
+            alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, HashState};
 
-        use super::{RESULT_MASKS, TTTBoard};
+        use super::{RESULT_MASKS, TTTBoard, TTTUnmove};
 
         #[test]
         fn display_test1() {
@@ -761,13 +780,14 @@ mod ttt_trait_solving {
 }
 
 mod uttt_trait_solving {
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, GameUnmove};
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
 
     // tictactoe constants
-    const UTTT_BOARD_WIDTH: usize = 9;
+//    const UTTT_BOARD_WIDTH: usize = 9;
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
-    const SUPER_MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
-    const SUB_MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const SQUARE_ORDERING: [u8; 81] = [40, 36, 38, 42, 39, 41, 44, 37, 43, 4, 0, 2, 6, 3, 5, 8, 1,
         7, 22, 18, 20, 24, 21, 23, 26, 19, 25, 58, 54, 56, 60, 57, 59, 62, 55, 61, 31, 27, 29, 33,
         30, 32, 35, 28, 34, 49, 45, 47, 51, 48, 50, 53, 46, 52, 76, 72, 74, 78, 75, 77, 80, 73, 79,
@@ -778,12 +798,14 @@ mod uttt_trait_solving {
     //    const MOVE_ORDERING: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     const CAT: u128 = (1 << 81) - 1;
 
-    #[derive(Debug)]
+    #[derive(Debug, Hash)]
     pub struct UTTTBoard {
         pub xbb: u128,
         pub x_supers: u16,
         pub obb: u128,
         pub o_supers: u16,
+        //        cbb: u128,
+//        c_supers: u16,
         pub last_super_index: u8,
         pub x_to_move: bool,
     }
@@ -802,14 +824,19 @@ mod uttt_trait_solving {
         return SubBoardAndSquare { sub_square_index: sub_square, sub_board_index: sub_board };
     }
 
-    impl AlphaBetaTTCompatible for UTTTBoard {
-        fn hash_val(&self) -> u32 {
-//            let base_hash = (self.xbb as u32) << 16 | (self.obb as u32);
-//            return match self.x_to_move {
-//                true => { base_hash },
-//                false => { !base_hash },
-//            };
-            return 0;
+    pub struct UTTTUnmove {
+        x_to_move: bool,
+        move_index: u8,
+        super_unmask: u16,
+        last_super: u8,
+    }
+
+    impl AlphaBetaTTCompatible<u64, UTTTUnmove> for UTTTBoard {
+        fn hash_val(&self) -> u64 {
+            //TODO: Replace with a Zobrist hashing scheme
+            let mut hasher = DefaultHasher::new();
+            self.hash(&mut hasher);
+            return hasher.finish();
         }
 
         fn get_win_state(&self) -> GameResult {
@@ -823,21 +850,23 @@ mod uttt_trait_solving {
             } else {
                 return GameResult::Unresolved;
             };
-            return GameResult::Unresolved;
         }
 
         fn x_to_move(&self) -> bool {
             return self.x_to_move;
         }
 
-        fn make_move(&mut self, a_move: &GameMove) -> GameUnmove {
+        fn make_move(&mut self, a_move: &GameMove) -> UTTTUnmove {
             let GameMove { x_to_move, move_index: a_move_index } = a_move;
-            let unmove = GameUnmove { x_to_move: x_to_move.clone(), move_index: a_move_index.clone() };
             let SubBoardAndSquare { sub_board_index, sub_square_index } = parse_index(a_move_index);
 //            eprintln!("{} {}", sub_board_index, sub_square_index);
 
+            let to_move_reset = x_to_move.clone();
+            let move_to_unmask = a_move_index.clone();
+            let mut super_unmask = 0;
+            let sub_board_reset = self.last_super_index.clone();
+
             // TODO: Remember to only unmake sub-board wins for the first
-            // move that wins that square
             match a_move {
                 GameMove { x_to_move: true, move_index } => {
                     self.xbb ^= 1u128 << move_index;
@@ -845,7 +874,9 @@ mod uttt_trait_solving {
                     let is_sub_win = RESULT_MASKS.iter().any(|x| (x & sub_board).eq(x));
 
                     if is_sub_win {
-                        self.x_supers |= (1 << sub_board_index);
+                        let super_mask = 1u16 << sub_board_index;
+                        self.x_supers |= super_mask;
+                        super_unmask = super_mask;
                     }
                     self.last_super_index = sub_square_index;
                     self.x_to_move = false;
@@ -856,7 +887,9 @@ mod uttt_trait_solving {
                     let is_sub_win = RESULT_MASKS.iter().any(|x| (x & sub_board).eq(x));
 
                     if is_sub_win {
-                        self.o_supers |= (1 << sub_board_index);
+                        let super_mask = 1u16 << sub_board_index;
+                        self.o_supers |= 1 << sub_board_index;
+                        super_unmask = super_mask;
                     }
                     self.last_super_index = sub_square_index;
                     self.x_to_move = true;
@@ -864,20 +897,35 @@ mod uttt_trait_solving {
             }
 
 
+            let unmove = UTTTUnmove {
+                x_to_move: to_move_reset,
+                move_index: move_to_unmask,
+                super_unmask: super_unmask,
+                last_super: sub_board_reset,
+            };
             return unmove;
         }
 
-        fn unmake_move(&mut self, unmove: GameUnmove) {
-//            match unmove {
-//                GameUnmove { x_to_move: true, move_index } => {
-//                    self.xbb ^= 1u16 << move_index;
-//                    self.x_to_move = true;
-//                },
-//                GameUnmove { x_to_move: false, move_index } => {
-//                    self.obb ^= 1u16 << move_index;
-//                    self.x_to_move = false;
-//                },
-//            }
+        fn unmake_move(&mut self, unmove: UTTTUnmove) {
+            let UTTTUnmove {
+                x_to_move, move_index,
+                super_unmask, last_super
+            } = unmove;
+
+            self.x_to_move = x_to_move;
+            self.last_super_index = last_super;
+
+            match x_to_move {
+                true => {
+                    self.xbb ^= 1u128 << move_index;
+                    self.x_supers ^= super_unmask;
+                },
+                false => {
+                    self.obb ^= 1u128 << move_index;
+                    self.o_supers ^= super_unmask;
+                }
+            };
+
         }
 
         fn score(&self) -> i8 {
@@ -892,6 +940,9 @@ mod uttt_trait_solving {
         }
 
         fn get_legal_moves(&self) -> Vec<GameMove> {
+
+            // gather won bitboards, the x/o occupation bitboards, and the total occupation
+            // of the bitboard directed by the last move
             let won_bbs = self.x_supers | self.o_supers;
 
             let directed_xbb = ((self.xbb >> (9 * self.last_super_index)) as u16) &
@@ -899,47 +950,37 @@ mod uttt_trait_solving {
             let directed_obb = ((self.obb >> (9 * self.last_super_index)) as u16) & ((1 << 9) - 1);
             let directed_occ = directed_obb | directed_xbb;
 
+            // arm 1 9 is a value used to indicate "play anywhere"
+            // arm 2 checks to see if the directed subboard has been won
+            // arm 3 checks if the directed subboard is full
+            // arm 4 creates a bitmask of 1s aligned to the directed board
             let directed_sub_board_index = match self.last_super_index {
                 value if value >= 9 => { (1u128 << 81) - 1 },
                 value if (won_bbs & (1 << value)) != 0 => { (1u128 << 81) - 1 },
-                value if directed_occ == ((1 << 9) - 1) => { (1u128 << 81) - 1 },
+                _value if directed_occ == ((1 << 9) - 1) => { (1u128 << 81) - 1 },
                 value => { ((1u128 << 9) - 1) << 9 * value },
             };
+
+            // check if a move index is legal based on a bitboard of either-player occupation
+            // and a bitboard indicating legality
             let occupied_bb = self.xbb | self.obb;
             let open_and_legal = !occupied_bb & directed_sub_board_index;
 
-//            eprintln!("directed board: {}",self.last_super_index);
-//            eprintln!("directed xbb: {:b}",directed_xbb);
-//            eprintln!("directed obb: {:b}",directed_obb);
-//            eprintln!("directed occ: {:b}",directed_occ);
-//            eprintln!("won bbs: {:b}",won_bbs);
-//            eprintln!("occ: {:b}",occupied_bb);
-//            eprintln!("dir: {:b}",directed_sub_board_index);
-//            eprintln!("oal: {:b}",open_and_legal);
-
-
             let valid_moves: Vec<GameMove> = SQUARE_ORDERING.iter().filter_map(|a_move_index| {
+//                eprintln("{}",no);
                 match open_and_legal & (1u128 << a_move_index) {
                     0 => None,
-//                    nonzero if => Some(GameMove { x_to_move: self.x_to_move, move_index: a_move_index.clone() }),
-                    nonzero => Some(GameMove { x_to_move: self.x_to_move, move_index: a_move_index.clone() }),
+                    _nonzero if (won_bbs & (1 << (a_move_index / 9))) != 0 => None,
+                    _nonzero => Some(GameMove { x_to_move: self.x_to_move, move_index: a_move_index.clone() }),
                 }
             }).collect();
 
-//            eprintln!("{}",valid_moves.len());
             return valid_moves;
         }
 
         fn display(&self) -> String {
-            //        let mut board_rep = String::new();
+            // TODO: Comment this better
             let mut rows = Vec::new();
-            //  0  1  2  9 10 11 18 19 20
-            //  3  4  5 12 13 14 21 22 23
-            //  6  7  8 15 16 17 24 25 26
-            // 27 28 29 36 37 38 45 46 47
-            // 30 31 32 39 40 41 48 49 50
-            // 33 34 35 42 43 44 51 52 53
-            //
 
             for super_row_index in 0..3 {
                 for sub_row_index in 0..3 {
@@ -973,7 +1014,6 @@ mod uttt_trait_solving {
         }
 
         fn is_valid(&self) -> bool {
-            // there are more ways to invalidate a board than are checked here
             return (self.obb & self.xbb) == 0;
         }
     }
@@ -984,14 +1024,15 @@ mod uttt_trait_solving {
         use std::time;
 
         use crate::game_solving::{
-            alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, GameUnmove, HashState};
+            alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, HashState};
         use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare};
 
         use super::{RESULT_MASKS, UTTTBoard};
 
         #[test]
         fn square_ordering_test() {
-            use super::{SUPER_MOVE_ORDERING, SUB_MOVE_ORDERING};
+            const SUPER_MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
+            const SUB_MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
             let mut ordered = Vec::new();
             for board_index in SUPER_MOVE_ORDERING.iter() {
                 for square_index in SUB_MOVE_ORDERING.iter() {
@@ -1194,7 +1235,7 @@ mod uttt_trait_solving {
 
         #[test]
         fn playout_test() {
-            let mut x = UTTTBoard {
+            let mut uttt_board = UTTTBoard {
                 xbb: 0,
                 obb: 0,
                 last_super_index: 9,
@@ -1204,54 +1245,54 @@ mod uttt_trait_solving {
             };
 
             let mut move_count = 0;
-            for i in 0..2500000u64 {
-                while x.get_win_state() == GameResult::Unresolved {
-//                eprintln!("{}", x.display());
-                    let moves = x.get_legal_moves();
+            for i in 0..7000000u64 {
+                while uttt_board.get_win_state() == GameResult::Unresolved {
+                    let moves = uttt_board.get_legal_moves();
                     let first_move = moves.get(0);
                     match first_move {
                         Some(a_move) => {
-                            x.make_move(a_move);
+                            uttt_board.make_move(a_move);
                             move_count += 1;
                         },
                         None => break,
                     }
+                    eprintln!("{}\n", uttt_board.display());
+                    assert_eq!(true, uttt_board.is_valid());
                 }
-                assert_eq!(81, move_count);
             }
-
-//            assert_eq!(x.display(),"I have no idea what I'll get here");
         }
-//
-//        #[test]
-//        fn make_and_unmake_move_test_1() {
-//            let mut x = UTTTBoard {
-//                xbb: 0,
-//                obb: 0,
-//                last_super_index: 9,
-//                won_supers: 0,
-//                x_to_move: true,
-//            };
-//            let board_string = x.display();
-//            assert_eq!(board_string, ".........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........");
-//            assert_eq!(x.x_to_move, true);
-//
-//
-//            //testing an x move
-//            let ttt_move = GameMove { move_index: 40, x_to_move: true };
-//            let unmake_move = x.make_move(&ttt_move);
-//            let board_string = x.display();
-//            eprintln!("{}",board_string);
-//            assert_eq!(board_string, ".........\n.........\n.........\n.........\n....X....\n.........\n.........\n.........\n.........");
-//            assert_eq!(x.x_to_move, false);
-//
-//            // testing an x unmake move
-//            x.unmake_move(unmake_move);
-//            let board_string = x.display();
-//            assert_eq!(board_string, ".........\n.........\n.........\n.........\n....X....\n.........\n.........\n.........\n.........");
-//            assert_eq!(x.x_to_move, true);
-//
-//            //readding an x move
+
+
+        #[test]
+        fn make_and_unmake_move_test_1() {
+            let mut x = UTTTBoard {
+                xbb: 0,
+                obb: 0,
+                last_super_index: 9,
+                x_supers: 0,
+                o_supers: 0,
+                x_to_move: true,
+            };
+            let board_string = x.display();
+            assert_eq!(board_string, ".........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........");
+            assert_eq!(x.x_to_move, true);
+
+
+            //testing an x move
+            let ttt_move = GameMove { move_index: 40, x_to_move: true };
+            let unmake_move = x.make_move(&ttt_move);
+            let board_string = x.display();
+            eprintln!("{}", board_string);
+            assert_eq!(board_string, ".........\n.........\n.........\n.........\n....X....\n.........\n.........\n.........\n.........");
+            assert_eq!(x.x_to_move, false);
+
+            // testing an x unmake move
+            x.unmake_move(unmake_move);
+            let board_string = x.display();
+            assert_eq!(board_string, ".........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........");
+            assert_eq!(x.x_to_move, true);
+
+//            //re-adding an x move
 //            let ttt_move = GameMove { move_index: 4, x_to_move: true };
 //            x.make_move(&ttt_move);
 //            let board_string = x.display();
@@ -1301,108 +1342,89 @@ mod uttt_trait_solving {
 //            assert_eq!(board_string, "OXO\n.X.\n.X.");
 //            assert_eq!(x.x_to_move, false);
 //            assert_eq!(x.get_win_state(), GameResult::P1Win);
-//        }
+        }
 
-//        #[test]
-//        fn x_win_tests() {
-//            let test_board = UTTTBoard { xbb: 7, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "XXX\n...\n...");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 7 << 3, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "...\nXXX\n...");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 7 << 6, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "...\n...\nXXX");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 73, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "X..\nX..\nX..");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 73 << 1, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), ".X.\n.X.\n.X.");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 73 << 2, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "..X\n..X\n..X");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 273, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "X..\n.X.\n..X");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//
-//            let test_board = UTTTBoard { xbb: 84, obb: 0, x_to_move: true };
-//            assert_eq!(test_board.display(), "..X\n.X.\nX..");
-//            assert_eq!(test_board.get_win_state(), GameResult::P1Win);
-//        }
-//
-//        #[test]
-//        fn o_win_tests() {
-//            let test_board = UTTTBoard { xbb: 0, obb: 7, x_to_move: true };
-//            assert_eq!(test_board.display(), "OOO\n...\n...");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 7 << 3, x_to_move: true };
-//            assert_eq!(test_board.display(), "...\nOOO\n...");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 7 << 6, x_to_move: true };
-//            assert_eq!(test_board.display(), "...\n...\nOOO");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 73, x_to_move: true };
-//            assert_eq!(test_board.display(), "O..\nO..\nO..");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 73 << 1, x_to_move: true };
-//            assert_eq!(test_board.display(), ".O.\n.O.\n.O.");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 73 << 2, x_to_move: true };
-//            assert_eq!(test_board.display(), "..O\n..O\n..O");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 273, x_to_move: true };
-//            assert_eq!(test_board.display(), "O..\n.O.\n..O");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//
-//            let test_board = UTTTBoard { xbb: 0, obb: 84, x_to_move: true };
-//            assert_eq!(test_board.display(), "..O\n.O.\nO..");
-//            assert_eq!(test_board.get_win_state(), GameResult::P2Win);
-//        }
-//
-//        #[test]
-//        fn movegen_test_1() {
-//            let mut x = UTTTBoard {
-//                xbb: 0,
-//                obb: 0,
-//                x_to_move: true,
-//            };
-//
-//            while x.get_legal_moves().len() > 0 {
-//                let moves = x.get_legal_moves();
-//                x.make_move(&moves[0]);
-//                eprintln!("{}", x.display());
-//                assert_eq!(true, x.is_valid());
-//            }
-//        }
-//
-//        #[test]
-//        fn alpha_beta_hash_test_1a() {
-//            // 256 128 64 32 16 8 4 2 1
-//            // 1 2 4 8 16 32 64 128 256
-//            let mut ttt_board = UTTTBoard {
-//                xbb: 0,
-//                obb: 44,
-//                x_to_move: true,
-//            };
-//
-//            let mut ttable = HashMap::new();
+        #[test]
+        fn movegen_test_1() {
+            let mut x = UTTTBoard {
+                xbb: 0,
+                obb: 0,
+                last_super_index: 9,
+                o_supers: 0,
+                x_supers: 0,
+                x_to_move: true,
+            };
+
+            while x.get_legal_moves().len() > 0 {
+                let moves = x.get_legal_moves();
+                x.make_move(&moves[0]);
+                eprintln!("{}", x.display());
+                assert_eq!(true, x.is_valid());
+            }
+        }
+
+
+        #[test]
+        fn alpha_beta_playout_test() {
+            let mut uttt_board = UTTTBoard {
+                xbb: 0,
+                obb: 0,
+                last_super_index: 9,
+                x_supers: 0,
+                o_supers: 0,
+                x_to_move: true,
+            };
+
+            let mut move_count = 0;
+            let mut ttable = HashMap::new();
+
+            while uttt_board.get_win_state() == GameResult::Unresolved {
+                let (board_val, move_index) = alpha_beta_search(
+                    &mut uttt_board, 6, std::i8::MIN, std::i8::MAX, &mut ttable,
+                );
+
+                let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
+                uttt_board.make_move(&ab_move);
+                move_count += 1;
+
+//                    let moves = uttt_board.get_legal_moves();
+//                    let first_move = moves.get(0);
+//                    match first_move {
+//                        Some(a_move) => {
+//                            uttt_board.make_move(a_move);
+//                            move_count += 1;
+//                        },
+//                        None => break,
+//                    }
+//                eprintln!("{}\n", uttt_board.display());
+//                eprintln!("value: {} selected move: {}", board_val, move_index);
+//                assert_eq!(true,uttt_board.is_valid());
+            }
+            assert_eq!(uttt_board.display(), "I have no idea what I'll get here");
+        }
+
+        #[test]
+        fn alpha_beta_hash_test_1a() {
+            // 256 128 64 32 16 8 4 2 1
+            // 1 2 4 8 16 32 64 128 256
+            let mut uttt_board = UTTTBoard {
+                xbb: 0,
+                obb: 0,
+                last_super_index: 9,
+                o_supers: 0,
+                x_supers: 0,
+                x_to_move: true,
+            };
+
+            let mut ttable = HashMap::new();
 //            let (board_val, move_index) = alpha_beta_search(
-//                &mut ttt_board, 10, std::i8::MIN, std::i8::MAX, &mut ttable,
+//                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
 //            );
+            let (board_val, move_index) = alpha_beta_search(
+                &mut uttt_board, 6, std::i8::MIN, std::i8::MAX, &mut ttable,
+            );
+
+//            uttt_board.make_move()
 //
 //
 ////        let table_entry = ttable.entry(129);
@@ -1420,8 +1442,8 @@ mod uttt_trait_solving {
 //            assert_eq!(-128, board_val);
 //
 //            assert_eq!(ttt_board.display(), "O.O\nOXO\nX.O");
-//        }
-//
+        }
+
 //        #[test]
 //        fn alpha_beta_hash_test_1b() {
 //            // 256 128 64 32 16 8 4 2 1

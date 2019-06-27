@@ -27,10 +27,11 @@ fn ttt_movegen_empty(c: &mut Criterion) {
         obb: 0 << 8,
         x_to_move: true,
     };
+    let legal_moves = Vec::new();
 
     c.bench_function(
         "ttt movegen empty",
-        move |b| b.iter( || black_box(x.clone()).get_legal_moves()));
+        move |b| b.iter( || black_box(x.clone()).get_legal_moves(&legal_moves)));
 }
 
 fn ttt_movegen_full(c: &mut Criterion) {
@@ -40,9 +41,11 @@ fn ttt_movegen_full(c: &mut Criterion) {
         x_to_move: true,
     };
 
+    let legal_moves = Vec::new();
+
     c.bench_function(
         "ttt movegen full board",
-        move |b| b.iter( || black_box(x.clone()).get_legal_moves()));
+        move |b| b.iter( || black_box(x.clone()).get_legal_moves(&legal_moves)));
 }
 
 //criterion_group!(ttt_benches, ttt_display_test, ttt_movegen_empty, ttt_movegen_full);

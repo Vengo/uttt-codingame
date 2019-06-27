@@ -22,7 +22,8 @@ fn uttt_display_test(c: &mut Criterion) {
 
     c.bench_function(
         "basic uttt display",
-        move |b| b.iter( || black_box(x.clone()).display()));
+        move |b| b.iter( || black_box(x.clone()).display())
+    );
 }
 
 fn uttt_movegen_empty(c: &mut Criterion) {
@@ -35,9 +36,11 @@ fn uttt_movegen_empty(c: &mut Criterion) {
         x_to_move: false,
     };
 
+    let legal_moves = UTTTBoard::get_move_orderings();
+
     c.bench_function(
         "uttt movegen empty",
-        move |b| b.iter( || black_box(x.clone()).get_legal_moves()));
+        move |b| b.iter( || black_box(x.clone()).get_legal_moves(&legal_moves)));
 }
 
 fn uttt_movegen_full(c: &mut Criterion) {
@@ -50,9 +53,11 @@ fn uttt_movegen_full(c: &mut Criterion) {
         x_to_move: false,
     };
 
+    let legal_moves = UTTTBoard::get_move_orderings();
+
     c.bench_function(
         "uttt movegen full board",
-        move |b| b.iter( || black_box(x.clone()).get_legal_moves()));
+        move |b| b.iter( || black_box(x.clone()).get_legal_moves(&legal_moves)));
 }
 
 fn uttt_make_move(c: &mut Criterion) {
@@ -128,12 +133,14 @@ fn uttt_playout(c: &mut Criterion) {
         x_to_move: true,
     };
 
+    let legal_moves = UTTTBoard::get_move_orderings();
+
     c.bench_function(
         "uttt playout",
         move |b| b.iter( || {
             let mut a_board = black_box(uttt_board.clone());
             while a_board.get_win_state() == GameResult::Unresolved {
-                let moves = a_board.get_legal_moves();
+                let moves = a_board.get_legal_moves(&legal_moves);
 
                 let first_move = moves.get(0);
                 match first_move {
@@ -156,12 +163,14 @@ fn uttt_playout_turn_2(c: &mut Criterion) {
         x_to_move: false,
     };
 
+    let legal_moves = UTTTBoard::get_move_orderings();
+
     c.bench_function(
         "uttt playout from turn 2",
         move |b| b.iter( || {
             let mut a_board = black_box(uttt_board.clone());
             while a_board.get_win_state() == GameResult::Unresolved {
-                let moves = a_board.get_legal_moves();
+                let moves = a_board.get_legal_moves(&legal_moves);
 
                 let first_move = moves.get(0);
                 match first_move {
@@ -184,6 +193,8 @@ fn uttt_playout_alpha_beta(c: &mut Criterion) {
         x_to_move: true,
     };
 
+    let legal_moves = UTTTBoard::get_move_orderings();
+
     const COMPETITIVE_AB_DEPTH: u8 = 2;
 
     let mut transposition_table = HashMap::new();
@@ -195,7 +206,8 @@ fn uttt_playout_alpha_beta(c: &mut Criterion) {
             while a_board.get_win_state() == GameResult::Unresolved {
 
                 let (best_value, best_action) = alpha_beta_search(
-                    &mut a_board, COMPETITIVE_AB_DEPTH, std::i8::MIN, std::i8::MAX, &mut transposition_table);
+                    &mut a_board, COMPETITIVE_AB_DEPTH, std::i8::MIN, std::i8::MAX,
+                    &mut transposition_table, &legal_moves);
 
                 let my_move = GameMove { move_index: best_action, x_to_move: uttt_board.x_to_move };
                 a_board.make_move(&my_move);
@@ -231,19 +243,44 @@ fn uttt_get_subboard_moves(c: &mut Criterion) {
         x_to_move: true,
     };
 
+    let legal_moves = UTTTBoard::get_move_orderings();
+
     c.bench_function(
         "uttt get subboard moves",
         move |b| b.iter( || {
             let mut a_board = black_box(uttt_board.clone());
-            a_board.get_subboard_moves(1);
+            a_board.get_subboard_moves(1, &legal_moves,&a_board.x_to_move);
+        }));
+}
+
+fn uttt_hash_test(c: &mut Criterion) {
+    let uttt_board = UTTTBoard {
+        xbb: [0, 0, 0, 0, 4, 0, 0, 0, 0],
+        obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        last_super_index: 4,
+        x_supers: 0,
+        o_supers: 0,
+        x_to_move: true,
+    };
+
+//    let legal_moves = UTTTBoard::get_move_orderings();
+
+    c.bench_function(
+        "uttt hash test",
+        move |b| b.iter( || {
+            let mut a_board = black_box(uttt_board.clone());
+            a_board.hash_val();
+//            a_board.get_subboard_moves(1, &legal_moves,&a_board.x_to_move);
         }));
 }
 
 //criterion_group!(
-//    uttt_benches, uttt_playout_alpha_beta, uttt_playout, uttt_display_test, uttt_movegen_empty,
-//    uttt_movegen_full, uttt_make_move, uttt_unmake_move, uttt_result_check, );
+//    uttt_benches, uttt_playout_turn_2, uttt_get_subboard_moves, uttt_playout_alpha_beta, uttt_playout,
+//    uttt_display_test, uttt_movegen_empty, uttt_movegen_full, uttt_make_move, uttt_unmake_move,
+//    uttt_result_check, uttt_get_tied_mask );
 //criterion_group!(uttt_benches, uttt_playout_turn_2, uttt_get_subboard_moves, uttt_get_tied_mask,
 //uttt_playout, uttt_movegen_empty, uttt_movegen_full, uttt_make_move, uttt_unmake_move, uttt_result_check);
-criterion_group!(uttt_benches, uttt_playout_turn_2, uttt_get_subboard_moves);
+//criterion_group!(uttt_benches, , uttt_get_subboard_moves);
+criterion_group!(uttt_benches, uttt_hash_test);
 
 criterion_main!(uttt_benches);

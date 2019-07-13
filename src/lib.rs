@@ -4,8 +4,8 @@
 pub mod game_solving {
     use std::collections::HashMap;
     use std::hash::Hash;
-    use std::time::Instant;
-    use std::cmp::{max,min};
+    use std::cmp::{max,min,Ordering};
+    use std::fmt::Display;
 
     #[derive(Debug)]
     pub struct HashState {
@@ -29,18 +29,25 @@ pub mod game_solving {
         pub move_index: u8,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct MCTSAction {
         pub game_move: GameMove,
-        visits: u32,
-        value: i32,
+        pub visits: u32,
+        pub value: i32,
+    }
+
+    pub struct UMCTSNode {
+        pub value_lower: i8,
+        pub value_upper: i8,
+        pub visits: u32,
+        pub value: i32,
     }
 
     pub struct MCTSNode<BoardState> {
         game_state: BoardState,
         value_lower: i8,
         value_upper: i8,
-        actions: Vec<MCTSAction>,
+        pub actions: Vec<MCTSAction>,
     }
 
     pub trait AlphaBetaTTCompatible<T: Hash + Eq + Copy, Unmove> {
@@ -56,31 +63,270 @@ pub mod game_solving {
 //        fn compatible_transposition_table() -> HashMap<Self::HashKeyType,HashState>;
     }
 
+    const MCTS_LAMBDA : f32 = 350.;
+
+    fn UCT_value_new(value: i32, node_visits: u32, action_visits: u32, x_to_move: bool) -> ordered_float {
+        let adjusted_visit_count = (action_visits + 1) as f32;
+        let average_val = (value as f32)/(adjusted_visit_count);
+        let explore_contribution = MCTS_LAMBDA * f32::sqrt(
+            f32::ln((node_visits as f32))/(adjusted_visit_count));
+
+        if x_to_move {
+            return ordered_float(average_val + explore_contribution);
+        } else {
+            return ordered_float(average_val - explore_contribution);
+        }
+    }
+
+    fn UCT_value(node_visits: u32, action: &MCTSAction) -> ordered_float {
+        let average_val = (action.value as f32)/(action.visits as f32);
+        let explore_contribution = MCTS_LAMBDA * f32::sqrt(
+            f32::ln((node_visits as f32))/(action.visits as f32));
+
+//        eprintln!("UCT Val: {}",average_val + explore_contribution);
+
+        if action.game_move.x_to_move {
+            return ordered_float(average_val + explore_contribution);
+        } else {
+            return ordered_float(average_val - explore_contribution);
+        }
+    }
+
     const LT: fn(i8, i8) -> bool = |a, b| a.lt(&b);
     const MIN: fn(i8, i8) -> i8 = |a, b| a.min(b);
 
     const GT: fn(i8, i8) -> bool = |a, b| a.gt(&b);
     const MAX: fn(i8, i8) -> i8 = |a, b| a.max(b);
 
+    #[derive(PartialOrd, PartialEq, Debug)]
+    struct ordered_float(pub f32);
+
+    impl Eq for ordered_float {}
+    impl Ord for ordered_float {
+        fn cmp(&self, other: &ordered_float) -> Ordering {
+            return self.partial_cmp(other).unwrap();
+        }
+    }
+
     pub fn huang_rollout<T: Hash + Eq + Copy, Unmove>(
         a_board: &mut impl AlphaBetaTTCompatible<T, Unmove>,
         playout_store: &mut HashMap<T,HashState>,
         legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
         alpha: i8, beta: i8, depth: u8
-    ) -> i8 {
+    ) -> (i8, i8, u8, bool) {
+        let mut ab_result = (0,0,255,false);
+
+        let mut terminal_line = true;
+
         while a_board.get_win_state() == GameResult::Unresolved {
-            let (best_value, _val_upper, best_action, found_terminal) = alpha_beta_search(
+            ab_result = alpha_beta_search(
                 a_board, depth, alpha, beta, playout_store, &legal_moves);
 
-            if found_terminal {
-                return best_value;
+            let (best_value, _val_upper, best_action, found_terminal) = ab_result;
+
+            terminal_line &= found_terminal;
+
+            if terminal_line {
+                return ab_result;
             } else {
                 let my_move = GameMove { move_index: best_action, x_to_move: a_board.x_to_move() };
                 a_board.make_move(&my_move);
             };
         }
-        return a_board.score();
+
+        let (best_value, val_upper, best_action, is_terminal) = ab_result;
+
+        return (best_value, val_upper, best_action, is_terminal);
     }
+
+    pub fn umcts<T: Hash + Eq + Copy + Display, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone> (
+        mut board: BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+        alpha: i8, beta: i8,
+        node_store: &mut HashMap<T,UMCTSNode>) -> i8 {
+
+        let board_hash = board.hash_val();
+
+        let a_node = node_store.entry(board_hash).or_insert(
+            {
+//                eprintln!("inserting new node for hash value {}", board_hash);
+                UMCTSNode{
+                    value_lower: std::i8::MIN,
+                    value_upper: std::i8::MAX,
+                    visits: 0,
+                    value: 0,
+                }
+            });
+
+        let board_visits = a_node.visits;
+        let board_lower = a_node.value_lower;
+        let board_upper = a_node.value_upper;
+
+        let all_moves = board.get_legal_moves(legal_moves);
+        let mut candidate_moves = Vec::with_capacity(81);
+
+        for each_move in all_moves.iter() {
+            let unmove = board.make_move(&each_move);
+            let successor_hash= board.hash_val();
+            board.unmake_move(unmove);
+
+            let (child_alpha, child_beta, child_visits, child_value) = match node_store.get(&successor_hash) {
+                Some(val) => {
+                    let UMCTSNode{value_lower, value_upper, visits, value} = val;
+                    (alpha.min( *value_lower), beta.min(*value_upper), visits, value)
+                },
+                None => {
+                    (alpha, beta, &0, &0)
+                },
+            };
+
+            if child_alpha < child_beta {
+                candidate_moves.push((each_move, child_alpha, child_beta, child_visits, child_value ));
+            }
+        }
+
+        let opt_tuple = if board.x_to_move() {
+            candidate_moves.iter().max_by_key(
+            |(a_move, move_alpha, move_beta, move_visits, move_value)|
+                (move_beta,UCT_value_new(
+                    **move_value, board_visits, **move_visits, board.x_to_move())))
+        } else {
+            candidate_moves.iter().min_by_key(
+                |(a_move, move_alpha, move_beta, move_visits, move_value)|
+                    (move_alpha,UCT_value_new(
+                        **move_value, board_visits, **move_visits, board.x_to_move())))
+        };
+
+//        let max_beta = candidate_moves.iter().max_by_key(
+//            |(a_move, move_alpha, move_beta, move_visits, move_value)|
+//                (move_beta,UCT_value_new(
+//                    **move_value, board_visits, **move_visits, board.x_to_move())));
+
+        let g = match opt_tuple {
+            Some(&(move_ref, best_alpha, best_beta, best_visits, best_value)) => {
+                let unmove = board.make_move(move_ref);
+                let rollout_result = umcts(board, legal_moves, best_alpha, best_beta, node_store);
+//                // since umcts completes a rollout, it's currently passing mut ownership
+//                // this prevents unmaking moves, but could be changed by using a &mut instead
+//                board.unmake_move(unmove);
+                let cached_node = node_store.get_mut(&board_hash).unwrap();
+                cached_node.visits += 1;
+                cached_node.value += i32::from(rollout_result);
+
+                rollout_result
+            },
+            None => {
+                beta.min(board_upper)
+            },
+
+        };
+
+
+        return g;
+    }
+
+
+    pub fn flat_mcts_search<T: Hash + Eq + Copy, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone> (
+        mut board: BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+        alpha: i8, beta: i8, depth: u8,
+        timing_object: std::time::Instant, time_limit_micros: u128,
+        ab_store: &mut HashMap<T,HashState>) -> (i8, i8, u8, bool) {
+        // this implementation of mcts is designed to do alphabeta rollouts using techinques
+        // from Bojun Huang's rollout pruning paper
+        //TODO: modify the alpha-beta code to accept a generic HashState... somehow?
+
+        // Retrieve an MCTS node from storage from this position, or create a new node and roll out
+        // its children.
+
+        let board_hash = board.hash_val();
+
+        let board_actions = board.get_legal_moves(legal_moves);
+        let mcts_actions = board_actions.iter(
+        ).map(|an_action| {
+            let mut board_copy = board.clone();
+            let ab_result = huang_rollout(&mut board_copy, ab_store,legal_moves,
+                                       alpha, beta, depth);
+
+            let (result, _, _, _) = ab_result;
+            MCTSAction{
+                game_move: an_action.clone(),
+                visits: 1,
+                value: i32::from(result),
+            }
+        }).collect();
+
+        let mut this_node = MCTSNode{
+            game_state: board.clone(),
+            value_lower: std::i8::MIN,
+            value_upper: std::i8::MAX,
+            actions: mcts_actions,
+        };
+
+        let mut alpha = std::i8::MIN;
+        let mut beta = std::i8::MAX;
+
+        //TODO: Modify alpha_beta_search to return a struct
+        //node_lower, node_upper, move_index,
+        let mut board_copy = board.clone();
+        let mut results = (alpha, beta, std::u8::MAX, false);
+
+        let mut node_visits : u32 = this_node.actions.iter(
+        ).map(|an_action| an_action.visits).sum();
+
+        let mut rollouts = 0;
+        //TODO: finish completion of rollouts from flat MCTS structure
+//        eprintln!("computing rollouts. X to move? {}", board.x_to_move());
+        while (this_node.value_lower < this_node.value_upper) & (timing_object.elapsed().as_micros() < time_limit_micros ){
+            let mut board_copy = board.clone();
+
+            let (best_index, best_action) = if board.x_to_move() {
+                this_node.actions.iter_mut().enumerate(
+                ).max_by_key(|(_, a)|
+                    UCT_value(node_visits,a)).unwrap()
+            } else {
+                this_node.actions.iter_mut().enumerate(
+                ).min_by_key(|(_, a)|
+                    UCT_value(node_visits,a)).unwrap()
+            };
+
+            board_copy.make_move(&best_action.game_move);
+
+            results = huang_rollout(&mut board_copy, ab_store, legal_moves,
+                                    this_node.value_lower, this_node.value_upper, depth);
+            let (new_lower, new_upper, _, is_terminal) = results;
+            best_action.visits += 1;
+            best_action.value += i32::from(new_lower);
+//            if is_terminal {
+//                this_node.value_lower = max(new_lower, this_node.value_lower);
+//                this_node.value_upper = min(new_lower, this_node.value_upper);
+//            }
+            rollouts+=1;
+            node_visits += 1;
+        }
+//        eprintln!("best action: {:?}",best_action);
+
+
+        eprintln!("{} rollouts completed at time {}", rollouts, timing_object.elapsed().as_micros());
+        if (this_node.value_lower >= this_node.value_upper) {
+            let (_, _, move_index, is_terminal) = results;
+            return (this_node.value_lower, this_node.value_upper, move_index, true );
+        } else {
+            let mut ordered_actions : Vec<&MCTSAction> = this_node.actions.iter().collect();
+            ordered_actions.sort_unstable_by_key(|an_action| an_action.visits);
+            for action in ordered_actions.iter().rev() {
+                eprintln!("action index: {}\n\taction visits: {}\n\tavg val: {}\n\tUCT val: {:?}\n\taction value: {}\n\t",
+                      action.game_move.move_index,
+                      action.visits,
+                      (action.value as f32)/(action.visits as f32),
+                      UCT_value(node_visits, action),
+                      action.value
+                );
+            }
+
+            let most_visited =  this_node.actions.iter().max_by_key(|a_node| a_node.visits).unwrap();
+            return (this_node.value_lower, this_node.value_upper, most_visited.game_move.move_index, false);
+        }
+    }
+
 
     pub fn mcts_search<T: Hash + Eq + Copy, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone> (
         mut board: BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
@@ -104,13 +350,13 @@ pub mod game_solving {
                     let mcts_actions = board_actions.iter(
                     ).map(|an_action| {
                         let mut board_copy = board.clone();
-                        let result = huang_rollout(&mut board_copy, ab_store,legal_moves,
-                                                   alpha, beta, depth
-                        );
+                        let ab_result = huang_rollout(&mut board_copy, ab_store,legal_moves,
+                                                   alpha, beta, depth);
+                        let (result, _, _ ,_) = ab_result;
                         MCTSAction{
                             game_move: an_action.clone(),
                             visits: 1,
-                            value: result as i32,
+                            value: i32::from(result),
                         }
                     }).collect();
 
@@ -140,11 +386,23 @@ pub mod game_solving {
                 game_move: GameMove{x_to_move: board.x_to_move(), move_index: best_action},
                 visits: std::u32::MAX,
                 value: best_value as i32,
-            })
+            });
         } else {
-            let (best_index, best_action) = root_node.actions.iter().enumerate(
-            ).max_by(|(_, a),(_, b)|
-                (a.value as f32/(a.visits as f32)).partial_cmp(&(b.value as f32/(b.visits as f32))).unwrap()).unwrap();
+            let node_visits : u32 = root_node.actions.iter().map(|a_node| a_node.visits).sum();
+
+            let (best_index, best_action) = if board.x_to_move() {
+                root_node.actions.iter().enumerate(
+                ).max_by(|(_, a),(_, b)|
+                    (a.value as f32/(a.visits as f32) + 0.10 * f32::sqrt(f32::ln(a.visits as f32)/(node_visits as f32)) ).partial_cmp(
+                        &(b.value as f32/(b.visits as f32) + 0.10 * f32::sqrt(f32::ln(a.visits as f32)/(node_visits as f32)))
+                    ).unwrap()).unwrap()
+            } else {
+                root_node.actions.iter().enumerate(
+                ).min_by(|(_, b),(_, a)|
+                    (a.value as f32/(a.visits as f32) + 0.10 * f32::sqrt(f32::ln(a.visits as f32)/(node_visits as f32)) ).partial_cmp(
+                        &(b.value as f32/(b.visits as f32) + 0.10 * f32::sqrt(f32::ln(a.visits as f32)/(node_visits as f32)))
+                    ).unwrap()).unwrap()
+            };
 
             let _unmove = board.make_move(&best_action.game_move);
 
@@ -154,12 +412,12 @@ pub mod game_solving {
             match mcts_store.get_mut(&board_hash) {
                 Some(mcts_node) => {
                     let mut action_modified = mcts_node.actions.get_mut(best_index).unwrap();
-                    action_modified.visits+=1;
-                    action_modified.value +=next_value as i32;
+                    action_modified.visits += 1;
+                    action_modified.value  += next_value as i32;
                     return (next_value, action_modified.clone());
                 },
                 None => {panic!("unable to retrieve mutable board state")}
-            }
+            };
         };
     }
 
@@ -214,12 +472,13 @@ pub mod game_solving {
             },
             GameResult::Unresolved if depth == 0 => {
                 terminal_found = false;
-                return (board.score(),board.score(),move_index,terminal_found);
+                (board.score(),board.score())
             },
             GameResult::Unresolved => {
-                let (_comp, selector, opt_val, start_val): (fn(i8, i8) -> bool, fn(i8, i8) -> i8, i8, i8) = match board.x_to_move() {
-                    true => (GT, MAX, std::i8::MAX, std::i8::MIN),
-                    false => (LT, MIN, std::i8::MIN, std::i8::MAX)
+                let (_comp, selector, opt_val, start_val): (fn(i8, i8) -> bool, fn(i8, i8) -> i8, i8, i8) = if board.x_to_move() {
+                    (GT, MAX, std::i8::MAX, std::i8::MIN)
+                } else{
+                    (LT, MIN, std::i8::MIN, std::i8::MAX)
                 };
                 let mut new_lower = start_val;
                 let mut new_upper = start_val;
@@ -231,43 +490,44 @@ pub mod game_solving {
                 }
 
                 if node_alpha >= node_beta {
-                    return (*stored_lower, *stored_upper, move_index, terminal_found);
-                }
-
-                for each_move in moves.iter() {
-                    assert_eq!(board.x_to_move(),each_move.x_to_move, "side to movemismatch in alphabeta");
-                    let unmake_instructions = board.make_move(&each_move);
-                    let (candidate_lower, candidate_upper, _move_index, terminal_search) = {
+//                    terminal_found = true;
+                    return(*stored_lower, *stored_upper, move_index, terminal_found);
+                } else {
+                    for each_move in moves.iter() {
+                        assert_eq!(board.x_to_move(),each_move.x_to_move, "side to move mismatch in alpha beta search");
+                        let unmake_instructions = board.make_move(&each_move);
+                        let (candidate_lower, candidate_upper, _move_index, terminal_search) = {
 //                        eprintln!("looking at board after move at depth {}. x to play? {}:\n{}",
 //                                  depth, board.x_to_move(), board.display());
-                        alpha_beta_search(
-                            board, depth - 1, node_alpha, node_beta, transpositions, legal_moves
-                        )
+                            alpha_beta_search(
+                                board, depth - 1, node_alpha, node_beta, transpositions, legal_moves
+                            )
+                        };
+
+//                    terminal_found = terminal_search;
+                        board.unmake_move(unmake_instructions);
+
+                        new_lower = selector(new_lower, candidate_lower);
+                        new_upper = selector(new_upper, candidate_upper);
+
+                        if board.x_to_move() {
+                            if new_lower > node_alpha {
+                                node_alpha = new_lower;
+                                move_index = each_move.move_index;
+                            }
+                        } else {
+                            if new_upper < node_beta {
+                                node_beta = new_upper;
+                                move_index = each_move.move_index;
+                            }
+                        }
+
+                        if (new_lower==opt_val)&(new_upper==opt_val) {
+                            move_index = each_move.move_index;
+                            break;
+                        }
                     };
-
-                    terminal_found &= terminal_search;
-                    board.unmake_move(unmake_instructions);
-
-                    new_lower = selector(new_lower, candidate_lower);
-                    new_upper = selector(new_upper, candidate_upper);
-
-                    if board.x_to_move() {
-                        if new_lower > node_alpha {
-                            node_alpha = new_lower;
-                            move_index = each_move.move_index;
-                        }
-                    } else {
-                        if new_upper < node_beta {
-                            node_beta = new_upper;
-                            move_index = each_move.move_index;
-                        }
-                    }
-
-                    if (new_lower==opt_val)&(new_upper==opt_val) {
-                        move_index = each_move.move_index;
-                        break;
-                    }
-                };
+                }
 
                 (new_lower, new_upper)
             },
@@ -313,11 +573,10 @@ pub mod ttt_trait_solving {
 
     impl AlphaBetaTTCompatible<u32, TTTUnmove> for TTTBoard {
         fn hash_val(&self) -> u32 {
-            let base_hash = (self.xbb as u32) << 16 | (self.obb as u32);
-            return match self.x_to_move {
-                true => { base_hash },
-                false => { !base_hash },
-            };
+            let base_hash = (u32::from(self.xbb)) << 16 | u32::from(self.obb);
+
+            let returned_hash = if self.x_to_move {base_hash} else {!base_hash};
+            return returned_hash;
         }
 
         fn get_win_state(&self) -> GameResult {
@@ -383,7 +642,7 @@ pub mod ttt_trait_solving {
 
             let valid_moves = MOVE_ORDERING.iter().filter_map(|a_move_index| {
                 match occupied_bb & (1u16 << a_move_index) {
-                    0 => Some(GameMove { x_to_move: self.x_to_move, move_index: a_move_index.clone() }),
+                    0 => Some(GameMove { x_to_move: self.x_to_move, move_index: *a_move_index }),
                     _nonzero => {
                         None
                     },
@@ -948,6 +1207,7 @@ pub mod uttt_trait_solving {
     use std;
 
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
+    use std::cmp::Ordering;
 
     // tictactoe constants
 //    const UTTT_BOARD_WIDTH: usize = 9;
@@ -979,7 +1239,7 @@ pub mod uttt_trait_solving {
         sub_square_index: usize,
     }
 
-    fn parse_index(an_index: &u8) -> SubBoardAndSquare {
+    fn parse_index(an_index: u8) -> SubBoardAndSquare {
         // Returns the sub board [0,8] and sub square [0-8]
         let sub_square = (an_index % 9) as usize;
         let sub_board = (an_index / 9) as usize;
@@ -987,7 +1247,7 @@ pub mod uttt_trait_solving {
         return SubBoardAndSquare { sub_square_index: sub_square, sub_board_index: sub_board };
     }
 
-    pub fn parse_index_from_super_coords(row_index: &u8, col_index: &u8) -> u8 {
+    pub fn parse_index_from_super_coords(row_index: u8, col_index: u8) -> u8 {
         let board_row = row_index/3;
         let subboard_row = row_index % 3;
 
@@ -1021,12 +1281,12 @@ pub mod uttt_trait_solving {
         }
 
         pub fn get_subboard_moves(&self, subboard_index: usize,
-              legality_lookup: &Vec<Vec<Vec<Vec<GameMove>>>>, side_to_move: &bool) -> Vec<GameMove> {
+              legality_lookup: &[Vec<Vec<Vec<GameMove>>>], side_to_move: bool) -> Vec<GameMove> {
 
 //            eprintln!("generating subboard moves for x? {}",self.x_to_move);
             let xbb = self.xbb[subboard_index];
             let obb = self.obb[subboard_index];
-            let side_int = if *side_to_move { 1usize} else { 0usize};
+            let side_int = if side_to_move { 1usize} else { 0usize};
             let lookup_moves = &legality_lookup[xbb as usize][obb as usize][side_int];
 
 //            let mut moves = Vec::with_capacity(9);
@@ -1043,7 +1303,7 @@ pub mod uttt_trait_solving {
 //            }
             let adjusted_moves = lookup_moves.iter(
             ).map(|GameMove{x_to_move: side, move_index: a_move_index}|
-                GameMove{x_to_move:*side_to_move, move_index: a_move_index+ 9*subboard_index as u8});
+                GameMove{x_to_move:side_to_move, move_index: a_move_index+ 9*subboard_index as u8});
 
             return adjusted_moves.collect();
         }
@@ -1121,17 +1381,17 @@ pub mod uttt_trait_solving {
 
         fn make_move(&mut self, a_move: &GameMove) -> UTTTUnmove {
             let GameMove { x_to_move, move_index: a_move_index } = a_move;
-            let SubBoardAndSquare { sub_board_index, sub_square_index } = parse_index(a_move_index);
+            let SubBoardAndSquare { sub_board_index, sub_square_index } = parse_index(*a_move_index);
 //            eprintln!("{} {}", sub_board_index, sub_square_index);
 
-            let to_move_reset = x_to_move.clone();
-            let move_to_unmask = a_move_index.clone();
-            let mut super_unmask = 0;
-            let sub_board_reset = self.last_super_index.clone();
+            let to_move_reset = *x_to_move;
+            let move_to_unmask = *a_move_index;
+            let mut a_super_unmask = 0;
+            let sub_board_reset = self.last_super_index;
 
             match a_move {
                 GameMove { x_to_move: true, move_index } => {
-                    self.xbb[sub_board_index] = self.xbb[sub_board_index] ^ (1<<sub_square_index);
+                    self.xbb[sub_board_index] ^= 1<<sub_square_index;
                     let result_board = self.xbb[sub_board_index];
 
                     let is_sub_win = RESULT_MASKS.iter().any(|x| (x & result_board).eq(x));
@@ -1139,13 +1399,13 @@ pub mod uttt_trait_solving {
                     if is_sub_win {
                         let super_mask = 1u16 << sub_board_index;
                         self.x_supers |= super_mask;
-                        super_unmask = super_mask;
+                        a_super_unmask = super_mask;
                     }
                     self.last_super_index = sub_square_index as u8;
                     self.x_to_move = false;
                 },
                 GameMove { x_to_move: false, move_index } => {
-                    self.obb[sub_board_index] = self.obb[sub_board_index] ^ (1<<sub_square_index);
+                    self.obb[sub_board_index] ^= 1<<sub_square_index;
                     let result_board = self.obb[sub_board_index];
 
                     let is_sub_win = RESULT_MASKS.iter().any(|x| (x & result_board).eq(x));
@@ -1153,7 +1413,7 @@ pub mod uttt_trait_solving {
                     if is_sub_win {
                         let super_mask = 1u16 << sub_board_index;
                         self.o_supers |= 1 << sub_board_index;
-                        super_unmask = super_mask;
+                        a_super_unmask = super_mask;
                     }
                     self.last_super_index = sub_square_index as u8;
                     self.x_to_move = true;
@@ -1163,7 +1423,7 @@ pub mod uttt_trait_solving {
             let unmove = UTTTUnmove {
                 x_to_move: to_move_reset,
                 move_index: move_to_unmask,
-                super_unmask: super_unmask,
+                super_unmask: a_super_unmask,
                 last_super: sub_board_reset,
             };
             return unmove;
@@ -1175,20 +1435,17 @@ pub mod uttt_trait_solving {
                 super_unmask, last_super
             } = unmove;
 
-            let SubBoardAndSquare{sub_board_index, sub_square_index} = parse_index(&move_index);
+            let SubBoardAndSquare{sub_board_index, sub_square_index} = parse_index(move_index);
 
             self.x_to_move = x_to_move;
             self.last_super_index = last_super;
 
-            match x_to_move {
-                true => {
+            if x_to_move {
                     self.xbb[sub_board_index] ^= 1 << sub_square_index;
                     self.x_supers ^= super_unmask;
-                },
-                false => {
+            } else {
                     self.obb[sub_board_index] ^= 1 << sub_square_index;
                     self.o_supers ^= super_unmask;
-                }
             };
         }
 
@@ -1223,13 +1480,13 @@ pub mod uttt_trait_solving {
                     for subboard_index in 0..9usize {
                         if (complete_bbs & (1 << subboard_index)) == 0 {
                             moves.append(&mut self.get_subboard_moves(
-                                subboard_index, legality_lookup, &self.x_to_move))
+                                subboard_index, legality_lookup, self.x_to_move))
                         }
                     }
                     moves
                 },
                 value => self.get_subboard_moves(
-                    value, legality_lookup, &self.x_to_move),
+                    value, legality_lookup, self.x_to_move),
             };
 
             return moves_to_return;
@@ -1280,8 +1537,7 @@ pub mod uttt_trait_solving {
         use std::collections::{HashMap};
         use std::time;
 
-        use crate::game_solving::{
-            alpha_beta_search, mcts_search, AlphaBetaTTCompatible, GameMove, GameResult};
+        use crate::game_solving::{alpha_beta_search, mcts_search, AlphaBetaTTCompatible, GameMove, GameResult, flat_mcts_search, umcts};
         use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare};
 
         use super::{UTTTBoard};
@@ -1318,6 +1574,137 @@ pub mod uttt_trait_solving {
 //            assert_eq!(timer.elapsed().as_micros(),7);
 
 //            eprintln!("{}",board_string);
+//            eprintln!("........X\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........");
+//            assert_eq!(board_string, "........X\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n");
+        }
+
+        #[test]
+        fn move_ordering_test() {
+            let move_ordering = UTTTBoard::get_move_orderings();
+
+
+        }
+
+        #[test]
+        fn flat_mcts_test() {
+            let x = UTTTBoard {
+                xbb: [0u16,0u16,0u16,0u16,0u16,0u16,0u16,0u16,0u16],
+                obb: [0u16;9],
+                last_super_index: 9,
+                x_supers: 0,
+                o_supers: 0,
+                x_to_move: false,
+            };
+            let board_string = x.display();
+
+//            mcts_search<T: Hash + Eq + Copy, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone> (
+//            mut board: BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+//            alpha: i8, beta: i8, depth: u8,
+//            mcts_store: &mut HashMap<T, MCTSNode<BoardState>>,
+//            ab_store: &mut HashMap<T,HashState>);
+
+            let mut move_count = 0;
+
+            let mut ttable = HashMap::new();
+
+            let legal_moves = UTTTBoard::get_move_orderings();
+
+            let timer = time::Instant::now();
+
+            let results = flat_mcts_search(
+                x, &legal_moves, std::i8::MAX-1, std::i8::MAX, 7, timer,
+                999_000,&mut ttable);
+
+            eprintln!("{:?}",results);
+//            assert_eq!(timer.elapsed().as_micros(),7);
+
+//            eprintln!("{}",board_string);
+//            assert_eq!(true,false);
+//            eprintln!("........X\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........");
+//            assert_eq!(board_string, "........X\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n");
+        }
+
+        #[test]
+        fn umcts_test() {
+            let uttt_board = UTTTBoard {
+                xbb: [0u16,0u16,0u16,0u16,16u16,0u16,0u16,0u16,0u16],
+                obb: [0u16,0u16,0u16,0u16, 0u16,0u16,0u16,0u16,0u16],
+                last_super_index: 0,
+                x_supers: 0,
+                o_supers: 0,
+                x_to_move: false,
+            };
+            let board_string = uttt_board.display();
+
+//            mcts_search<T: Hash + Eq + Copy, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone> (
+//            mut board: BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+//            alpha: i8, beta: i8, depth: u8,
+//            mcts_store: &mut HashMap<T, MCTSNode<BoardState>>,
+//            ab_store: &mut HashMap<T,HashState>);
+
+            let mut move_count = 0;
+
+            let mut node_store = HashMap::new();
+
+            let legal_moves = UTTTBoard::get_move_orderings();
+
+            let timer = time::Instant::now();
+            let time_limit = 999_000;
+
+
+            let mut rollout_result = umcts(
+                uttt_board, &legal_moves, std::i8::MAX-1, std::i8::MAX, &mut node_store);
+            let mut rollout_count = 1;
+            let board_hash = uttt_board.hash_val();
+
+            while timer.elapsed().as_micros() < time_limit {
+                let retrieved = node_store.get(&board_hash);
+                let (search_alpha, search_beta) = match retrieved {
+                    Some(node) => {
+                        (node.value_lower, node.value_upper)
+                    },
+                    None => {
+                        (std::i8::MIN, std::i8::MAX)
+                    }
+                };
+
+                rollout_result = umcts(
+                uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store);
+                rollout_count += 1;
+            }
+
+            eprintln!("rollout results: {:?}",rollout_result);
+
+            eprintln!("{}",uttt_board.display());
+
+            eprintln!("elapsed time: {}",timer.elapsed().as_micros());
+            eprintln!("rollouts: {}",rollout_count);
+            eprintln!("node storage size: {}", node_store.len());
+
+            let moves = uttt_board.get_legal_moves(&legal_moves);
+            let mut mut_board = uttt_board;
+            for each_move in moves.iter() {
+                eprintln!("========================");
+//                eprintln!("x to move? {}",each_move.x_to_move);
+                let undo_move = mut_board.make_move(each_move);
+                let this_hash = mut_board.hash_val();
+                mut_board.unmake_move(undo_move);
+                let child_stats = node_store.get(&this_hash);
+
+                match child_stats {
+                    Some(node) => {
+                        eprintln!("node avg value: {}",(node.value as f32)/(node.visits as f32));
+                        eprintln!("node visits: {}",node.visits);
+                    }
+                    None => {
+                        eprintln!("no stored statistics found for hash value: {}",this_hash);
+                    }
+                }
+                eprintln!("");
+
+            }
+
+            assert_eq!(true,false);
 //            eprintln!("........X\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........");
 //            assert_eq!(board_string, "........X\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n");
         }
@@ -1522,7 +1909,7 @@ pub mod uttt_trait_solving {
             let sub_square = 6;
 
             let expected_tuple = SubBoardAndSquare { sub_board_index: sub_board, sub_square_index: sub_square };
-            let actual_tuple = parse_index(&51);
+            let actual_tuple = parse_index(51);
 
             assert_eq!(expected_tuple, actual_tuple);
         }
@@ -1545,7 +1932,7 @@ pub mod uttt_trait_solving {
 
             let expt_start = time::Instant::now();
 
-            for i in 0..2000u64 {
+            for i in 0..1200u64 {
                 let mut uttt_board = base_board;
                 while uttt_board.get_win_state() == GameResult::Unresolved {
                     let moves = uttt_board.get_legal_moves(&legal_moves);
@@ -1717,7 +2104,7 @@ pub mod uttt_trait_solving {
                     x_to_move: true,
                 };
                 while uttt_board.get_win_state() == GameResult::Unresolved {
-                    eprintln!("===========\n{}",uttt_board.display());
+//                    eprintln!("===========\n{}",uttt_board.display());
                     let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                         &mut uttt_board, 2, std::i8::MIN, std::i8::MAX,
                         &mut ttable, &legal_moves
@@ -1756,7 +2143,7 @@ pub mod uttt_trait_solving {
             };
 
             let now = time::Instant::now();
-            for i in 0..12000 {
+            for i in 0..6000 {
                 let mut uttt_board = master_board.clone();
                 while uttt_board.get_win_state() == GameResult::Unresolved {
                     let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
@@ -1772,6 +2159,43 @@ pub mod uttt_trait_solving {
             let time_check = now.elapsed().as_micros() < 500000;
             eprintln!("fast playout time was: {}",now.elapsed().as_micros());
             assert_eq!(true,time_check);
+        }
+
+
+
+        #[test]
+        fn alpha_beta_zero_window() {
+            // 256 128 64 32 16 8 4 2 1
+            // 1 2 4 8 16 32 64 128 256
+            let mut uttt_board = UTTTBoard {
+                xbb: [0u16 ;9],
+                obb: [0u16 ;9],
+                last_super_index: 9,
+                o_supers: 0,
+                x_supers: 0,
+                x_to_move: true,
+            };
+
+            let legal_moves = UTTTBoard::get_move_orderings();
+
+            let mut ttable = HashMap::new();
+//            let (board_val, move_index) = alpha_beta_search(
+//                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
+//            );
+            let search_start = time::Instant::now();
+            let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
+                &mut uttt_board, 8, std::i8::MAX-1, std::i8::MAX,
+                &mut ttable, &legal_moves
+            );
+
+            eprintln!("board lower: {}\nboard upper: {}",board_val, board_upper);
+            assert_eq!(board_val, -128);
+            assert_eq!(board_upper, 1);
+
+            eprintln!("ttable size: {}", ttable.len());
+            eprintln!("elapsed search time: {}", search_start.elapsed().as_micros());
+            assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
+//            assert_eq!(true,false);
         }
 
 
@@ -1867,7 +2291,7 @@ pub mod uttt_trait_solving {
             );
 
             eprintln!("ttable size: {}", ttable.len());
-            eprintln!("elapsed search time: {}", search_start.elapsed().as_millis());
+            eprintln!("elapsed search time: {}", search_start.elapsed().as_micros());
             assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
         }
     }
@@ -1888,7 +2312,7 @@ pub fn main() {
 
     //    use crate::ttt_trait_solving::{TTTBoard};
     use crate::uttt_trait_solving::{UTTTBoard,parse_index_from_super_coords};
-    use crate::game_solving::{alpha_beta_search, mcts_search, AlphaBetaTTCompatible, MCTSAction, GameMove};
+    use crate::game_solving::{mcts_search, flat_mcts_search, AlphaBetaTTCompatible, GameMove, MCTSAction};
     use std::time;
 
     use std::collections::HashMap;
@@ -1905,16 +2329,16 @@ pub fn main() {
 
     let mut turn_count = 0;
     let mut transposition_table = HashMap::new();
-    let mut mcts_table = HashMap::new();
     const COMPETITIVE_AB_DEPTH: u8 = 2;
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let mut legal_moves = Vec::new();
 
     loop {
         // **************************************************************
         // begin supplied boiler plate
         let mut input_line = String::new();
         std::io::stdin().read_line(&mut input_line).unwrap();
+
         let inputs = input_line.split(' ').collect::<Vec<_>>();
         let opponent_row = parse_input!(inputs[0], i32);
         let opponent_col = parse_input!(inputs[1], i32);
@@ -1923,83 +2347,68 @@ pub fn main() {
         let valid_action_count = parse_input!(input_line, i32);
 //        eprintln!("Valid moves:");
 
-        let mut actions = Vec::new();
+//        let mut actions = Vec::with_capacity(81);
         for _i in 0..valid_action_count as usize {
             let mut input_line = String::new();
             std::io::stdin().read_line(&mut input_line).unwrap();
             let inputs = input_line.split(' ').collect::<Vec<_>>();
-            let row = parse_input!(inputs[0], i32);
-            let col = parse_input!(inputs[1], i32);
-            actions.push((row, col));
+            let _row = parse_input!(inputs[0], i32);
+            let _col = parse_input!(inputs[1], i32);
+//            actions.push((row, col));
 //            eprintln!("\t{} {}", row, col);
         }
         // end supplied boiler plate
         // ***************************************************************
+        // setting start of turn timer
 
+        // **************************************************************
         let turn_start = time::Instant::now();
-        let time_limit = if turn_count == 0 {990_000 } else {
-            90_000
+        let time_limit = if turn_count == 0 {
+            legal_moves = UTTTBoard::get_move_orderings();
+            990_000
+        } else {
+            99_000
         };
 
-        eprintln!("opponent row was: {} {}", opponent_row, opponent_col);
-        eprintln!("elapsed so far: {}", turn_start.elapsed().as_micros());
+//        eprintln!("opponent row was: {} {}", opponent_row, opponent_col);
+//        eprintln!("elapsed so far: {}", turn_start.elapsed().as_micros());
 //        eprintln!("start of turn board state was:\n{}", uttt_board.display());
         let mut rollouts = 0;
 
         let best_move_index = match (opponent_row, opponent_col) {
             (-1, -1) => {
 
-                while turn_start.elapsed().as_micros() < time_limit {
-                    eprintln!("elapsed so far: {}", turn_start.elapsed().as_micros());
-                    let board_clone = uttt_board;
-                    mcts_search(board_clone, &legal_moves, std::i8::MIN, std::i8::MAX,
-                                COMPETITIVE_AB_DEPTH, &mut mcts_table, &mut transposition_table);
-
-                    eprintln!("elapsed so far post search {}: {}", rollouts, turn_start.elapsed().as_micros());
-                    rollouts += 1;
-                }
-
+                let default_first = GameMove { move_index: 40, x_to_move: uttt_board.x_to_move };
+                uttt_board.make_move(&default_first);
                 let board_clone = uttt_board;
-                let (best_value, best_action) = mcts_search(board_clone, &legal_moves, std::i8::MIN, std::i8::MAX,
-                    COMPETITIVE_AB_DEPTH, &mut mcts_table, &mut transposition_table);
-
-                eprintln!("best value: {}\nbest action: {}", best_value, best_action.game_move.move_index);
-                let my_move = GameMove { move_index: best_action.game_move.move_index, x_to_move: uttt_board.x_to_move };
-                uttt_board.make_move(&my_move);
+                let results = flat_mcts_search(
+                    board_clone, &legal_moves, std::i8::MIN, std::i8::MAX,
+                    COMPETITIVE_AB_DEPTH, turn_start, time_limit,&mut transposition_table);
+                let (upper, lower, move_index, is_terminal) = results;
 //                println!("{} {}", best_action / 3, best_action % 3);
-                best_action.game_move.move_index
+                // return the default first move index
+                40
             },
             (row, col) => {
-                let opp_move_index = parse_index_from_super_coords(&(row as u8),&(col as u8));
+                let opp_move_index = parse_index_from_super_coords(row as u8,col as u8);
 //                    (9 * row + col) as u8;
 
                 let opp_move = GameMove { move_index: opp_move_index, x_to_move: uttt_board.x_to_move };
                 uttt_board.make_move(&opp_move);
-                eprintln!("subboard identified as: {}", uttt_board.last_super_index);
-
-
-                while turn_start.elapsed().as_micros() < time_limit {
-                    eprintln!("elapsed so far: {}", turn_start.elapsed().as_micros());
-                    let board_clone = uttt_board;
-                    mcts_search(board_clone, &legal_moves, std::i8::MIN, std::i8::MAX,
-                                COMPETITIVE_AB_DEPTH, &mut mcts_table, &mut transposition_table);
-
-                    eprintln!("elapsed so far post search {}: {}", rollouts, turn_start.elapsed().as_micros());
-                    rollouts += 1;
-                }
-
                 let board_clone = uttt_board;
-                let (best_value, best_action) = mcts_search(board_clone, &legal_moves, std::i8::MIN, std::i8::MAX,
-                    COMPETITIVE_AB_DEPTH, &mut mcts_table, &mut transposition_table);
+                let results = flat_mcts_search(
+                    board_clone, &legal_moves, std::i8::MIN, std::i8::MAX,
+                    COMPETITIVE_AB_DEPTH, turn_start, time_limit,&mut transposition_table);
 
-                eprintln!("best value: {}\nbest action: {}", best_value, best_action.game_move.move_index);
-                let my_move = GameMove { move_index: best_action.game_move.move_index, x_to_move: uttt_board.x_to_move };
+                let (upper, lower, move_index, is_terminal) = results;
+
+
+                let my_move = GameMove { move_index: move_index, x_to_move: uttt_board.x_to_move };
                 uttt_board.make_move(&my_move);
 //                println!("{} {}", best_action / 3, best_action % 3);
-                best_action.game_move.move_index
+                move_index
             },
         };
-
 
 
         let best_subboard_index = best_move_index/9;
@@ -2013,9 +2422,9 @@ pub fn main() {
 
         turn_count +=1;
         eprintln!("elapsed microseconds: {}",turn_start.elapsed().as_micros());
-        eprintln!("completed rollouts: {}", rollouts);
+//        eprintln!("completed rollouts: {}", rollouts);
+        eprintln!("board representation:\n{:?}", uttt_board);
         println!("{} {}",final_row, final_column);
     }
 }
-
 

@@ -4,9 +4,7 @@ extern crate criterion;
 use criterion::Criterion;
 use criterion::black_box;
 
-//use utt::game_solving;
-
-use uttt::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, mcts_search};
+use uttt::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, umcts};
 use uttt::uttt_trait_solving::{UTTTBoard};
 use std::collections::HashMap;
 
@@ -254,15 +252,7 @@ fn mcts_bench(c: &mut Criterion) {
         x_to_move: false,
     };
     let board_string = uttt_board.display();
-
-//            mcts_search<T: Hash + Eq + Copy, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone> (
-//            mut board: BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
-//            alpha: i8, beta: i8, depth: u8,
-//            mcts_store: &mut HashMap<T, MCTSNode<BoardState>>,
-//            ab_store: &mut HashMap<T,HashState>);
-
     let mut move_count = 0;
-
 
     let legal_moves = UTTTBoard::get_move_orderings();
 
@@ -270,12 +260,10 @@ fn mcts_bench(c: &mut Criterion) {
         "mcts search benchmarking",
         move |b| b.iter( || {
             let mut a_board = black_box(uttt_board.clone());
-            let mut ttable = HashMap::new();
             let mut mcts_table = HashMap::new();
-            mcts_search(a_board, &legal_moves, std::i8::MIN, std::i8::MAX, 2, &mut mcts_table, &mut ttable);
 
+            umcts(&mut a_board, &legal_moves, std::i8::MIN, std::i8::MAX, &mut mcts_table);
         }));
-
  }
 
 
@@ -373,7 +361,7 @@ fn uttt_hash_test(c: &mut Criterion) {
 //            a_board.get_subboard_moves(1, &legal_moves,&a_board.x_to_move);
         }));
 }
-
+//
 //criterion_group!(
 //    uttt_benches, uttt_playout_turn_2, uttt_get_subboard_moves, uttt_playout_alpha_beta, uttt_playout,
 //    uttt_display_test, uttt_movegen_empty, uttt_movegen_full, uttt_make_move, uttt_unmake_move,
@@ -382,5 +370,5 @@ fn uttt_hash_test(c: &mut Criterion) {
 //uttt_playout, uttt_movegen_empty, uttt_movegen_full, uttt_make_move, uttt_unmake_move, uttt_result_check);
 //criterion_group!(uttt_benches, , uttt_get_subboard_moves);
 //criterion_group!(uttt_benches, mcts_bench, uttt_playout_alpha_beta);
-criterion_group!(uttt_benches, uttt_alpha_beta_zero_window);
+criterion_group!(uttt_benches, mcts_bench, uttt_movegen_empty, uttt_result_check);
 criterion_main!(uttt_benches);

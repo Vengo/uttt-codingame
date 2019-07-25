@@ -3,7 +3,7 @@ use uttt;
 fn main() {
     // game loop
     use uttt::uttt_trait_solving::{UTTTBoard,parse_index_from_super_coords};
-    use uttt::game_solving::{umcts, AlphaBetaTTCompatible, GameMove, MCTSAction, UMCTSNode,
+    use uttt::game_solving::{AlphaBetaTTCompatible, GameMove, MCTSAction, UMCTSNode,
                              GameResult, advance_rollout, reverse_rollout,
         IdentityHasher, IdentityHasherBuilder
     };
@@ -20,7 +20,7 @@ fn main() {
     };
 
     let mut turn_count = 0;
-    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(40_000_000);
+//    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(40_000_000);
 
     let mut legal_moves: Vec<Vec<Vec<Vec<GameMove>>>> = Vec::new();
 
@@ -37,7 +37,8 @@ fn main() {
     let orig_board = uttt_board.clone();
     let mut unmove_queue = Vec::with_capacity(81);
 //    let mut node_store = HashMap::new();
-    let mut node_store= HashMap::with_hasher(IdentityHasherBuilder{});
+//    asdf
+    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(20_000_000, IdentityHasherBuilder{});
     let mut legal_moves = UTTTBoard::get_move_orderings();
 
     loop {
@@ -48,21 +49,25 @@ fn main() {
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0 {
             legal_moves = UTTTBoard::get_move_orderings();
-            9_998_000
+            998_000
         } else {
-            9_998_000
+            998_000
         };
 
 
         let mut rollout_count = 0;
 
-        let mut search_alpha = std::i8::MIN;
-        let mut search_beta  = std::i8::MAX;
 
         let board_hash = uttt_board.hash_val();
 
+//        let start_window = ms
+
+
         while turn_start.elapsed().as_micros() < time_limit {
+            let mut search_alpha = std::i8::MIN;
+            let mut search_beta = std::i8::MAX;
             let mut rollout_result = 0;
+
             while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
                                                              &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
                 let (new_alpha, new_beta) = new_alpha_beta;
@@ -70,20 +75,36 @@ fn main() {
                 search_beta = new_beta;
             };
 
+            let final_hash = uttt_board.hash_val();
+            let terminal_node = node_store.get_mut(&final_hash).unwrap();
+
             let rollout_result = match uttt_board.get_win_state() {
-                    GameResult::P1Win => std::i8::MAX,
-                    GameResult::P2Win => std::i8::MIN,
-                    GameResult::Tie   => 0,
-                    _ => search_alpha,
+                    GameResult::P1Win => {
+                        rollout_result = std::i8::MAX;
+                        terminal_node.value_lower = rollout_result;
+                        terminal_node.value_upper = rollout_result;
+                        rollout_result
+                    },
+                    GameResult::P2Win => {
+                        rollout_result = std::i8::MIN;
+                        terminal_node.value_lower = rollout_result;
+                        terminal_node.value_upper = rollout_result;
+                        rollout_result
+                    },
+                    GameResult::Tie   => {
+                        rollout_result = 0;
+                        terminal_node.value_lower = rollout_result;
+                        terminal_node.value_upper = rollout_result;
+                        rollout_result
+                    },
+                    _ => {
+                        //TODO: Figure out what on earth this means!
+                        search_alpha
+                    },
                 };
-            //            rollout_result: i8,
-            //            board_queue: &mut Vec<umcts_queue_element<T,Unmove>>,
-            //            board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
-            //            node_store: &mut HashMap<T,UMCTSNode>
             reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
                             &legal_moves, &mut node_store
             );
-//            assert_eq!(orig_board, uttt_board);
             rollout_count +=1;
         }
 
@@ -124,6 +145,7 @@ fn main() {
                 Some(node) => {
                     eprintln!("node avg value: {}",(node.value as f32)/(node.visits as f32));
                     eprintln!("node visits: {}",node.visits);
+                    eprintln!("node lower/upper: {}\t{}",node.value_lower, node.value_upper);
                     eprintln!("move index: {}", each_move.move_index);
                 }
                 None => {

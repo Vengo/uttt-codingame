@@ -130,7 +130,7 @@ pub mod game_solving {
         }
     }
 
-    pub struct umcts_queue_element<T, Unmove> {
+    pub struct UMCTSQueueElement<T, Unmove> {
         undo: Unmove,
         board_hash: T,
         child_hashes: Vec<T>,
@@ -165,7 +165,7 @@ pub mod game_solving {
     }
 
     pub fn advance_rollout<T: Hash + Eq + Copy + Display, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone, S: BuildHasher> (
-        board_queue: &mut Vec<umcts_queue_element<T,Unmove>>,
+        board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
         board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
         alpha: i8, beta: i8,
         node_store: &mut HashMap<T,UMCTSNode,S>
@@ -245,7 +245,7 @@ pub mod game_solving {
         let return_bundle = match opt_tuple {
             Some(&(move_ref, best_alpha, best_beta, best_visits, best_value)) => {
                 let undo = board.make_move(move_ref);
-                let new_queue_element = umcts_queue_element{
+                let new_queue_element = UMCTSQueueElement {
                     undo,
                     board_hash,
                     child_hashes,
@@ -264,13 +264,16 @@ pub mod game_solving {
 
     pub fn reverse_rollout<T: Hash + Eq + Copy + Display, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone, S: BuildHasher> (
         rollout_result: i8,
-        board_queue: &mut Vec<umcts_queue_element<T,Unmove>>,
+        board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
         board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
         node_store: &mut HashMap<T,UMCTSNode, S>
     ) -> Option<(i8, i8)> {
 
         while let Some(queue_element) = board_queue.pop(){
-            let umcts_queue_element{
+
+
+
+            let UMCTSQueueElement {
                 undo, board_hash, child_hashes, x_to_move
             } = queue_element;
 
@@ -278,7 +281,7 @@ pub mod game_solving {
                 {
                     match node_store.get(a_hash) {
                         Some(stored_node) => stored_node.value_lower,
-                        None => if x_to_move { std::i8::MIN } else { std::i8::MIN },
+                        None => std::i8::MIN,
                     }
                 }
             ).minmax();
@@ -286,13 +289,11 @@ pub mod game_solving {
                 {
                     match node_store.get(a_hash) {
                         Some(stored_node) => stored_node.value_upper,
-                        None => if x_to_move { std::i8::MAX } else { std::i8::MAX },
+                        None => std::i8::MAX,
                     }
                 }
             ).minmax();
 
-            let cached_node = node_store.get_mut(&board_hash).unwrap();
-    //            MinMax,OneElement,NoElements
             let new_lower = match lower_bounds {
                 MinMax(min_lower,max_lower) => {
                     if x_to_move {
@@ -324,6 +325,7 @@ pub mod game_solving {
                 },
             };
 
+            let cached_node = node_store.get_mut(&board_hash).unwrap();
             cached_node.value_upper = new_upper;
             cached_node.value_lower = new_lower;
             cached_node.value += i32::from(rollout_result);
@@ -2295,8 +2297,12 @@ macro_rules! parse_input {
 pub fn main() {
     // game loop
     use crate::uttt_trait_solving::{UTTTBoard,parse_index_from_super_coords};
-    use crate::game_solving::{umcts, AlphaBetaTTCompatible, GameMove, uct_value,
-                              MCTSAction, UMCTSNode};
+//    use crate::game_solving::{umcts, AlphaBetaTTCompatible, GameMove, uct_value,
+//                              MCTSAction, UMCTSNode};
+    use crate::game_solving::{umcts, AlphaBetaTTCompatible, GameMove, MCTSAction, UMCTSNode,
+                             GameResult, advance_rollout, reverse_rollout, uct_value,
+                             IdentityHasher, IdentityHasherBuilder
+    };
     use std::time;
     use std::collections::HashMap;
 
@@ -2310,11 +2316,17 @@ pub fn main() {
     };
 
     let mut turn_count = 0;
-    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(2_000_000);
-    ;
+//    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(2_000_000);
     const COMPETITIVE_AB_DEPTH: u8 = 2;
 
+    let mut unmove_queue = Vec::with_capacity(81);
+//    let mut node_store = HashMap::new();
+    let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
     let mut legal_moves = Vec::new();
+
+
+    let mut search_alpha = std::i8::MIN;
+    let mut search_beta  = std::i8::MAX;
 
     loop {
         // **************************************************************
@@ -2363,22 +2375,49 @@ pub fn main() {
                 let board_hash = uttt_board.hash_val();
 
                 while turn_start.elapsed().as_micros() < time_limit {
-                    let retrieved: Option<&UMCTSNode> = node_store.get(&board_hash);
-                    let (search_alpha, search_beta) = match retrieved {
-                        Some(a_node) => {
-                            (a_node.value_lower, a_node.value_upper)
-                        },
-                        None => {
-                            (std::i8::MIN, std::i8::MAX)
-                        }
+                    let mut search_alpha = std::i8::MIN;
+                    let mut search_beta = std::i8::MAX;
+                    let mut rollout_result = 0;
+
+                    while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
+                                                                     &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
+                        let (new_alpha, new_beta) = new_alpha_beta;
+                        search_alpha = new_alpha;
+                        search_beta = new_beta;
                     };
 
-                    rollout_result = umcts(
-                        &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store);
-                    rollout_count += 1;
+                    let final_hash = uttt_board.hash_val();
+                    let terminal_node = node_store.get_mut(&final_hash).unwrap();
+
+                    let rollout_result = match uttt_board.get_win_state() {
+                        GameResult::P1Win => {
+                            rollout_result = std::i8::MAX;
+                            terminal_node.value_lower = rollout_result;
+                            terminal_node.value_upper = rollout_result;
+                            rollout_result
+                        },
+                        GameResult::P2Win => {
+                            rollout_result = std::i8::MIN;
+                            terminal_node.value_lower = rollout_result;
+                            terminal_node.value_upper = rollout_result;
+                            rollout_result
+                        },
+                        GameResult::Tie   => {
+                            rollout_result = 0;
+                            terminal_node.value_lower = rollout_result;
+                            terminal_node.value_upper = rollout_result;
+                            rollout_result
+                        },
+                        _ => {
+                            //TODO: Figure out what on earth this means!
+                            search_alpha
+                        },
+                    };
+                    reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
+                                    &legal_moves, &mut node_store
+                    );
+                    rollout_count +=1;
                 }
-
-
                 let moves = uttt_board.get_legal_moves(&legal_moves);
                 let mut mut_board = uttt_board.clone();
 
@@ -2427,19 +2466,48 @@ pub fn main() {
                 let board_hash = uttt_board.hash_val();
 
                 while turn_start.elapsed().as_micros() < time_limit {
-                    let retrieved = node_store.get(&board_hash);
-                    let (search_alpha, search_beta) = match retrieved {
-                        Some(node) => {
-                            (node.value_lower, node.value_upper)
-                        },
-                        None => {
-                            (std::i8::MIN, std::i8::MAX)
-                        }
+                    let mut search_alpha = std::i8::MIN;
+                    let mut search_beta = std::i8::MAX;
+                    let mut rollout_result = 0;
+
+                    while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
+                                                                     &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
+                        let (new_alpha, new_beta) = new_alpha_beta;
+                        search_alpha = new_alpha;
+                        search_beta = new_beta;
                     };
 
-                    rollout_result = umcts(
-                        &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store);
-                    rollout_count += 1;
+                    let final_hash = uttt_board.hash_val();
+                    let terminal_node = node_store.get_mut(&final_hash).unwrap();
+
+                    let rollout_result = match uttt_board.get_win_state() {
+                        GameResult::P1Win => {
+                            rollout_result = std::i8::MAX;
+                            terminal_node.value_lower = rollout_result;
+                            terminal_node.value_upper = rollout_result;
+                            rollout_result
+                        },
+                        GameResult::P2Win => {
+                            rollout_result = std::i8::MIN;
+                            terminal_node.value_lower = rollout_result;
+                            terminal_node.value_upper = rollout_result;
+                            rollout_result
+                        },
+                        GameResult::Tie   => {
+                            rollout_result = 0;
+                            terminal_node.value_lower = rollout_result;
+                            terminal_node.value_upper = rollout_result;
+                            rollout_result
+                        },
+                        _ => {
+                            //TODO: Figure out what on earth this means!
+                            search_alpha
+                        },
+                    };
+                    reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
+                                    &legal_moves, &mut node_store
+                    );
+                    rollout_count +=1;
                 }
 
                 let moves = uttt_board.get_legal_moves(&legal_moves);
@@ -2486,15 +2554,11 @@ pub fn main() {
                         }
                     }
                     eprintln!("");
-
                 }
-
                 uttt_board.make_move(best_move);
                 best_move.move_index
             },
         };
-
-
         let best_subboard_index = best_move_index/9;
         let best_sub_square_index = best_move_index%9;
 
@@ -2512,4 +2576,3 @@ pub fn main() {
         println!("{} {}",final_row, final_column);
     }
 }
-

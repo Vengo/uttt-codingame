@@ -17,6 +17,7 @@ fn main() {
         o_supers: 0,
         x_supers: 0,
         x_to_move: true,
+        hash_state: 0,
     };
 
     let mut turn_count = 0;
@@ -32,6 +33,7 @@ fn main() {
         x_supers: 0,
         o_supers: 0,
         x_to_move: false,
+        hash_state: 0,
     };
 
     let orig_board = uttt_board.clone();
@@ -49,9 +51,9 @@ fn main() {
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0 {
             legal_moves = UTTTBoard::get_move_orderings();
-            998_000
+            98_000
         } else {
-            998_000
+            98_000
         };
 
 

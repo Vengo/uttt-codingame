@@ -24,6 +24,7 @@ fn main() {
 //    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(40_000_000);
 
     let mut legal_moves: Vec<Vec<Vec<Vec<GameMove>>>> = Vec::new();
+    let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
 
     let mut uttt_board = UTTTBoard {
@@ -40,7 +41,7 @@ fn main() {
     let mut unmove_queue = Vec::with_capacity(81);
 //    let mut node_store = HashMap::new();
 //    asdf
-    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(20_000_000, IdentityHasherBuilder{});
+    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
     let mut legal_moves = UTTTBoard::get_move_orderings();
 
     loop {
@@ -71,7 +72,7 @@ fn main() {
             let mut rollout_result = 0;
 
             while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
-                                                             &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
+                    &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
                 let (new_alpha, new_beta) = new_alpha_beta;
                 search_alpha = new_alpha;
                 search_beta = new_beta;
@@ -114,7 +115,7 @@ fn main() {
         let mut mut_board = uttt_board.clone();
 
         let best_move_option = moves.iter().max_by_key(|a_move| {
-            let undo = mut_board.make_move(a_move);
+            let undo = mut_board.make_move(a_move, &zobrist_constants);
             let this_hash = mut_board.hash_val();
             mut_board.unmake_move(undo);
             let child_stats = node_store.get(&this_hash);
@@ -138,7 +139,7 @@ fn main() {
         for each_move in moves.iter() {
             eprintln!("========================");
 //                eprintln!("x to move? {}",each_move.x_to_move);
-            let undo_move = uttt_board.make_move(each_move);
+            let undo_move = uttt_board.make_move(each_move, &zobrist_constants);
             let this_hash = uttt_board.hash_val();
             uttt_board.unmake_move(undo_move);
             let child_stats = node_store.get(&this_hash);
@@ -158,7 +159,7 @@ fn main() {
 
         }
 
-        uttt_board.make_move(best_move);
+        uttt_board.make_move(best_move, &zobrist_constants);
 
         turn_count +=1;
         eprintln!("board after move:\n{}", uttt_board.display());

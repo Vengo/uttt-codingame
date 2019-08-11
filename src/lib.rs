@@ -51,11 +51,11 @@ pub mod game_solving {
         pub actions: Vec<MCTSAction>,
     }
 
-    pub trait AlphaBetaTTCompatible<T: Hash + Eq + Copy, Unmove> {
+    pub trait AlphaBetaTTCompatible<T: Hash + Eq + Copy, Unmove, HashConstants> {
         fn hash_val(&self) -> T;
         fn get_win_state(&self) -> GameResult;
         fn x_to_move(&self) -> bool;
-        fn make_move(&mut self, a_move: &GameMove) -> Unmove;
+        fn make_move(&mut self, a_move: &GameMove, zobrist_constants: &HashConstants) -> Unmove;
         fn unmake_move(&mut self, a_move: Unmove);
         fn score(&self) -> i8;
         fn get_legal_moves(&self, legal_lookup: &Vec<Vec<Vec<Vec<GameMove>>>>) -> Vec<GameMove>;
@@ -165,17 +165,18 @@ pub mod game_solving {
     }
 
     #[inline(never)]
-    pub fn get_successors<'a, T: Hash + Eq + Copy + Display, Unmove,
-        BoardState: AlphaBetaTTCompatible<T,Unmove>, S: BuildHasher> (
+    pub fn get_successors<'a, T: Hash + Eq + Copy + Display, Unmove, HashConstants,
+        BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants>, S: BuildHasher> (
         all_moves: &'a Vec<GameMove>,
         candidate_moves: &mut Vec<(&'a GameMove,i8,i8,u32,i32)>,
         child_hashes: &mut Vec<T>,
         board: &mut BoardState,
         node_store: &mut HashMap<T,UMCTSNode,S>,
+        zobrist_constants: &HashConstants,
         alpha: i8, beta: i8
     ) {
         for each_move in all_moves.iter() {
-            let undo = board.make_move(&each_move);
+            let undo = board.make_move(&each_move, zobrist_constants);
             let successor_hash= board.hash_val();
             child_hashes.push( successor_hash);
             board.unmake_move(undo);
@@ -196,11 +197,13 @@ pub mod game_solving {
         }
     }
 
-    pub fn advance_rollout<T: Hash + Eq + Copy + Display, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone, S: BuildHasher> (
+    pub fn advance_rollout<T: Hash + Eq + Copy + Display, Unmove, HashConstants,
+        BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants> + Clone, S: BuildHasher> (
         board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
         board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
         alpha: i8, beta: i8,
-        node_store: &mut HashMap<T,UMCTSNode,S>
+        node_store: &mut HashMap<T,UMCTSNode,S>,
+        zobrist_constants: &HashConstants,
     ) -> Option<(i8, i8)> {
 
         let board_hash = board.hash_val();
@@ -230,7 +233,8 @@ pub mod game_solving {
         let mut child_hashes = Vec::with_capacity(40);
 
         get_successors(
-            &all_moves, &mut candidate_moves, &mut child_hashes, board, node_store, alpha, beta
+            &all_moves, &mut candidate_moves, &mut child_hashes, board, node_store, zobrist_constants,
+            alpha, beta
         );
 
         let opt_tuple = get_optimal(
@@ -239,7 +243,7 @@ pub mod game_solving {
 
         let return_bundle = match opt_tuple {
             Some(&(move_ref, best_alpha, best_beta, best_visits, best_value)) => {
-                let undo = board.make_move(move_ref);
+                let undo = board.make_move(move_ref, zobrist_constants);
                 let new_queue_element = UMCTSQueueElement {
                     undo,
                     board_hash,
@@ -257,7 +261,8 @@ pub mod game_solving {
         return return_bundle;
     }
 
-    pub fn reverse_rollout<T: Hash + Eq + Copy + Display, Unmove, BoardState: AlphaBetaTTCompatible<T,Unmove> + Clone, S: BuildHasher> (
+    pub fn reverse_rollout<T: Hash + Eq + Copy + Display, Unmove, HashConstants,
+        BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants> + Clone, S: BuildHasher> (
         rollout_result: i8,
         board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
         board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
@@ -329,9 +334,10 @@ pub mod game_solving {
         return None;
     }
 
-    pub fn alpha_beta_search<T: Hash + Eq + Copy, Unmove> (
-        board: &mut impl AlphaBetaTTCompatible<T, Unmove>, depth: u8, alpha: i8, beta: i8,
-        transpositions: &mut HashMap<T, HashState>, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>
+    pub fn alpha_beta_search<T: Hash + Eq + Copy, Unmove, HashConstants> (
+        board: &mut impl AlphaBetaTTCompatible<T, Unmove, HashConstants>, depth: u8, alpha: i8, beta: i8,
+        transpositions: &mut HashMap<T, HashState>, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+        zobrist_constants: &HashConstants
         ) -> (i8, i8, u8, bool) {
         // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
         let node_hash = board.hash_val();
@@ -394,12 +400,13 @@ pub mod game_solving {
                 } else {
                     for each_move in moves.iter() {
                         assert_eq!(board.x_to_move(),each_move.x_to_move, "side to move mismatch in alpha beta search");
-                        let unmake_instructions = board.make_move(&each_move);
+                        let unmake_instructions = board.make_move(&each_move, zobrist_constants);
                         let (candidate_lower, candidate_upper, _move_index, terminal_search) = {
 //                        eprintln!("looking at board after move at depth {}. x to play? {}:\n{}",
 //                                  depth, board.x_to_move(), board.display());
                             alpha_beta_search(
-                                board, depth - 1, node_alpha, node_beta, transpositions, legal_moves
+                                board, depth - 1, node_alpha, node_beta, transpositions, legal_moves,
+                                zobrist_constants
                             )
                         };
 
@@ -445,6 +452,7 @@ pub mod game_solving {
 
 pub mod ttt_trait_solving {
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
+    use crate::uttt_trait_solving::ZobristConstants;
 
     // tictactoe constants
     const TTT_BOARD_WIDTH: usize = 3;
@@ -466,7 +474,17 @@ pub mod ttt_trait_solving {
         pub move_index: u8,
     }
 
-    impl AlphaBetaTTCompatible<u32, TTTUnmove> for TTTBoard {
+    struct TTTZobrist {
+        //I'm not ACTUALLY implementing Zobrist constants for normal tictactoe...
+    }
+
+    impl TTTBoard {
+        fn get_zobrist_constants() -> TTTZobrist {
+            return TTTZobrist{};
+        }
+    }
+
+    impl AlphaBetaTTCompatible<u32, TTTUnmove, TTTZobrist> for TTTBoard {
         fn hash_val(&self) -> u32 {
             let base_hash = (u32::from(self.xbb)) << 16 | u32::from(self.obb);
 
@@ -491,7 +509,7 @@ pub mod ttt_trait_solving {
             return self.x_to_move;
         }
 
-        fn make_move(&mut self, a_move: &GameMove) -> TTTUnmove {
+        fn make_move(&mut self, a_move: &GameMove, zobrist_constants: &TTTZobrist) -> TTTUnmove {
 //            pub x_to_move: bool,
 //            pub move_index: u8,
             let unmove = TTTUnmove { x_to_move: self.x_to_move, move_index: a_move.move_index };
@@ -583,6 +601,7 @@ pub mod ttt_trait_solving {
 
         use super::{RESULT_MASKS, TTTBoard};
         use crate::uttt_trait_solving::UTTTBoard;
+        use crate::ttt_trait_solving::TTTZobrist;
 
         #[test]
         fn display_test1() {
@@ -614,6 +633,7 @@ pub mod ttt_trait_solving {
                 obb: 0,
                 x_to_move: true,
             };
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
             let board_string = x.display();
             assert_eq!(board_string, "...\n...\n...");
             assert_eq!(x.x_to_move, true);
@@ -621,7 +641,7 @@ pub mod ttt_trait_solving {
 
             //testing an x move
             let ttt_move = GameMove { move_index: 0, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "X..\n...\n...");
             assert_eq!(x.x_to_move, false);
@@ -634,14 +654,14 @@ pub mod ttt_trait_solving {
 
             //readding an x move
             let ttt_move = GameMove { move_index: 4, x_to_move: true };
-            x.make_move(&ttt_move);
+            x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "...\n.X.\n...");
             assert_eq!(x.x_to_move, false);
 
             //testing an o move
             let ttt_move = GameMove { move_index: 1, x_to_move: false };
-            let unmake = x.make_move(&ttt_move);
+            let unmake = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, ".O.\n.X.\n...");
             assert_eq!(x.x_to_move, true);
@@ -654,28 +674,28 @@ pub mod ttt_trait_solving {
 
             //testing an o move
             let ttt_move = GameMove { move_index: 0, x_to_move: false };
-            x.make_move(&ttt_move);
+            x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "O..\n.X.\n...");
             assert_eq!(x.x_to_move, true);
 
             //testing an x move
             let ttt_move = GameMove { move_index: 1, x_to_move: true };
-            x.make_move(&ttt_move);
+            x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "OX.\n.X.\n...");
             assert_eq!(x.x_to_move, false);
 
             //testing an o move
             let ttt_move = GameMove { move_index: 2, x_to_move: false };
-            x.make_move(&ttt_move);
+            x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "OXO\n.X.\n...");
             assert_eq!(x.x_to_move, true);
 
             //testing an x move
             let ttt_move = GameMove { move_index: 7, x_to_move: true };
-            x.make_move(&ttt_move);
+            x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             RESULT_MASKS.iter().for_each(|mask| println! {"mask:\t{}\nbitw:\t{}\nxbb:\t{}\n", mask, x.xbb & mask, x.xbb});
 
@@ -763,10 +783,11 @@ pub mod ttt_trait_solving {
             };
 
             let legal_moves = Vec::new();
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
             while x.get_legal_moves(&legal_moves).len() > 0 {
                 let moves = x.get_legal_moves(&legal_moves);
-                x.make_move(&moves[0]);
+                x.make_move(&moves[0], &zobrist_constants);
                 eprintln!("{}", x.display());
                 assert_eq!(true, x.is_valid());
             }
@@ -782,11 +803,12 @@ pub mod ttt_trait_solving {
                 x_to_move: true,
             };
             let legal_moves = Vec::new();
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
 
@@ -794,13 +816,13 @@ pub mod ttt_trait_solving {
             while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves
+                    &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
                 eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
                 assert_eq!(true, ttt_board.is_valid());
 
-                ttt_board.make_move(&a_move);
+                ttt_board.make_move(&a_move, &zobrist_constants);
                 eprintln!("{}", ttt_board.display());
             }
             assert_eq!(-128, board_val);
@@ -818,13 +840,14 @@ pub mod ttt_trait_solving {
                 x_to_move: true,
             };
             let legal_moves = Vec::new();
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
 
 
             let mut ttable = HashMap::new();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
 //        let table_entry = ttable.entry(129);
@@ -832,13 +855,13 @@ pub mod ttt_trait_solving {
                 eprintln!("\n====================\n");
                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves
+                    &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
                 eprintln!("board:\n{}\nnext move:{:?}\nevaluation {}", ttt_board.display(), a_move, board_val);
                 assert_eq!(true, ttt_board.is_valid());
 
-                ttt_board.make_move(&a_move);
+                ttt_board.make_move(&a_move, &zobrist_constants);
                 eprintln!("{}", ttt_board.display());
                 assert_eq!(127, board_val);
             }
@@ -858,11 +881,12 @@ pub mod ttt_trait_solving {
                 x_to_move: false,
             };
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
             let legal_moves = Vec::new();
@@ -871,13 +895,13 @@ pub mod ttt_trait_solving {
             while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves
+                    &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
 //                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
                 assert_eq!(true, ttt_board.is_valid());
 
-                ttt_board.make_move(&a_move);
+                ttt_board.make_move(&a_move, &zobrist_constants);
 //                eprintln!("{}", ttt_board.display());
                 assert_eq!(0, board_val);
             }
@@ -897,11 +921,12 @@ pub mod ttt_trait_solving {
             };
 
             let legal_moves = Vec::new();
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
             let (board_val, board_upper,move_index, found_terminal) = alpha_beta_search(
                 &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
 
@@ -910,13 +935,13 @@ pub mod ttt_trait_solving {
             while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves
+                    &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
                 eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
                 assert_eq!(true, ttt_board.is_valid());
 
-                ttt_board.make_move(&a_move);
+                ttt_board.make_move(&a_move, &zobrist_constants);
                 eprintln!("{}", ttt_board.display());
                 assert_eq!(0, board_val);
             }
@@ -933,6 +958,7 @@ pub mod ttt_trait_solving {
                 obb: 0,
                 x_to_move: true,
             };
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
 //            let (board_val, move_index) = alpha_beta_search(
@@ -944,7 +970,7 @@ pub mod ttt_trait_solving {
                 (0, 0, 4, true),
                 alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN,
-                    std::i8::MAX, &mut ttable, &legal_moves)
+                    std::i8::MAX, &mut ttable, &legal_moves, &zobrist_constants)
             );
 
 
@@ -952,12 +978,12 @@ pub mod ttt_trait_solving {
             while ttt_board.get_legal_moves(&legal_moves).len() > 0 {
                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves
+                    &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
                 assert_eq!(true, ttt_board.is_valid());
 
-                ttt_board.make_move(&a_move);
+                ttt_board.make_move(&a_move, &zobrist_constants);
             }
 
             assert_eq!(ttt_board.display(), "OOX\nXXO\nOXX");
@@ -969,6 +995,7 @@ pub mod ttt_trait_solving {
             let mut valid_count = 0;
             let mut ttable = HashMap::new();
             let legal_moves = Vec::new();
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
             for side in &[true, false] {
                 for xbb in (0..512).rev() {
@@ -985,13 +1012,13 @@ pub mod ttt_trait_solving {
                                 (init_board.get_win_state() == GameResult::Unresolved) {
                                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                                     &mut init_board, 10, std::i8::MIN, std::i8::MAX,
-                                    &mut ttable, &legal_moves
+                                    &mut ttable, &legal_moves, &zobrist_constants
                                 );
                                 let a_move = GameMove { move_index, x_to_move: init_board.x_to_move };
                                 //            eprintln!("board:\n{}\nnext move:{:?}",ttt_board.display(),a_move);
                                 assert_eq!(true, init_board.is_valid());
 
-                                init_board.make_move(&a_move);
+                                init_board.make_move(&a_move, &zobrist_constants);
                             }
                         } else {
                             invalid_count += 1;
@@ -1012,10 +1039,13 @@ pub mod ttt_trait_solving {
                 obb: 0,
                 x_to_move: true,
             };
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
 
 
-            fn hash_sucessors(mut a_board: &mut TTTBoard, mut visited_set: &mut HashSet<u32>) {
+            fn hash_sucessors(mut a_board: &mut TTTBoard,
+                              mut visited_set: &mut HashSet<u32>, zobrist_constants: &TTTZobrist
+            ) {
                 let this_hash = a_board.hash_val();
                 let legal_moves: Vec<Vec<Vec<Vec<GameMove>>>>= Vec::new();
                 visited_set.insert(this_hash);
@@ -1023,13 +1053,13 @@ pub mod ttt_trait_solving {
                 if a_board.get_win_state() == GameResult::Unresolved {
                     let successors = a_board.get_legal_moves(&legal_moves);
                     for each_move in &successors {
-                        let an_unmake = a_board.make_move(&each_move);
-                        hash_sucessors(&mut a_board, &mut visited_set);
+                        let an_unmake = a_board.make_move(&each_move, &zobrist_constants);
+                        hash_sucessors(&mut a_board, &mut visited_set, zobrist_constants);
                         a_board.unmake_move(an_unmake);
                     }
                 }
             }
-            hash_sucessors(&mut init_board, &mut visited);
+            hash_sucessors(&mut init_board, &mut visited, &zobrist_constants);
             assert_eq!(5478, visited.len());
         }
 
@@ -1041,10 +1071,13 @@ pub mod ttt_trait_solving {
                 obb: 0,
                 x_to_move: true,
             };
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
 //            let legal_moves = UTTTBoard::get_move_orderings();
 
-            fn hash_paths(hash_base: u128, mut a_board: &mut TTTBoard, mut visited_set: &mut HashSet<u128>) {
+            fn hash_paths(hash_base: u128, mut a_board: &mut TTTBoard,
+                          mut visited_set: &mut HashSet<u128>, zobrist_constants: &TTTZobrist
+            ) {
                 //            eprintln!("hash base: {}", hash_base);
                 let legal_moves: Vec<Vec<Vec<Vec<GameMove>>>>= Vec::new();
                 visited_set.insert(hash_base);
@@ -1052,13 +1085,13 @@ pub mod ttt_trait_solving {
                     let successors = a_board.get_legal_moves(&legal_moves);
                     for each_move in &successors {
                         let new_base = (hash_base << 8) + (each_move.move_index as u128);
-                        let unmake_move = a_board.make_move(&each_move);
-                        hash_paths(new_base, &mut a_board, &mut visited_set);
+                        let unmake_move = a_board.make_move(&each_move, &zobrist_constants);
+                        hash_paths(new_base, &mut a_board, &mut visited_set, zobrist_constants);
                         a_board.unmake_move(unmake_move);
                     }
                 }
             }
-            hash_paths(1, &mut init_board, &mut paths);
+            hash_paths(1, &mut init_board, &mut paths, &zobrist_constants);
             assert_eq!(549946, paths.len());
         }
 
@@ -1071,24 +1104,27 @@ pub mod ttt_trait_solving {
                 x_to_move: true,
             };
 
+            let zobrist_constants = TTTBoard::get_zobrist_constants();
 
 
-            fn hash_paths(hash_base: u128, mut a_board: &mut TTTBoard, mut visited_set: &mut HashSet<u128>) {
+            fn hash_paths(hash_base: u128, mut a_board: &mut TTTBoard,
+                          mut visited_set: &mut HashSet<u128>, zobrist_constants: &TTTZobrist
+            ) {
                 //            eprintln!("hash base: {}", hash_base);
                 let legal_moves: Vec<Vec<Vec<Vec<GameMove>>>> = Vec::new();
                 if a_board.get_win_state() == GameResult::Unresolved {
                     let successors = a_board.get_legal_moves(&legal_moves);
                     for each_move in successors.iter() {
                         let new_base = (hash_base << 8) + (each_move.move_index as u128);
-                        let unmake_move = a_board.make_move(each_move);
-                        hash_paths(new_base, &mut a_board, &mut visited_set);
+                        let unmake_move = a_board.make_move(each_move, &zobrist_constants);
+                        hash_paths(new_base, &mut a_board, &mut visited_set, zobrist_constants);
                         a_board.unmake_move(unmake_move);
                     }
                 } else {
                     visited_set.insert(hash_base);
                 }
             }
-            hash_paths(1, &mut init_board, &mut paths);
+            hash_paths(1, &mut init_board, &mut paths, &zobrist_constants);
             assert_eq!(255168, paths.len());
         }
     }
@@ -1100,6 +1136,10 @@ pub mod uttt_trait_solving {
     use std::iter::FromIterator;
     use std::u16;
     use std;
+
+    use rand;
+    use rand::{rngs, SeedableRng, Rng};
+//    use rand;
 
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
     use std::cmp::Ordering;
@@ -1115,6 +1155,10 @@ pub mod uttt_trait_solving {
 //    const MOVE_ORDERING: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
+
+
+    const ZOBRIST_SEED: u64 = 0x95_62_9A_0C_B8_00_E9_41u64; //generated from random.org
+    const HASH_DEFAULT: u64 = 0x8e_6c_65_b8_2e_fd_36_70u64; //generated from random.org
 
     #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub struct UTTTBoard {
@@ -1162,6 +1206,7 @@ pub mod uttt_trait_solving {
         move_index: u8,
         super_unmask: u16,
         last_super: u8,
+        hash_reset: u64,
     }
 
     pub struct ZobristConstants {
@@ -1170,7 +1215,23 @@ pub mod uttt_trait_solving {
         x_to_move: u64,
     }
 
+    impl Default for UTTTBoard {
+        fn default() -> UTTTBoard {
+            let default_board = UTTTBoard {
+                xbb: [0u16; 9],
+                obb: [0u16; 9],
+                last_super_index: 9,
+                o_supers: 0,
+                x_supers: 0,
+                x_to_move: true,
+                hash_state: HASH_DEFAULT,
+            };
+            return default_board;
+        }
+    }
+
     impl UTTTBoard {
+
         pub fn get_tied_mask(&self) -> u16 {
             let new_mask = self.xbb.iter().zip(
                 self.obb.iter()).enumerate().filter_map(
@@ -1240,16 +1301,36 @@ pub mod uttt_trait_solving {
 
         pub fn get_zobrist_constants() -> ZobristConstants {
             //TODO: Implement actual zobrist constant generation, maybe with the rand crate?
-            let boring_constants = ZobristConstants{
-                x_constants: [0u64;81],
-                o_constants: [0u64;81],
-                x_to_move: 0u64,
+            let mut seeded = rngs::StdRng::seed_from_u64(ZOBRIST_SEED);
+
+            let x_consts = {
+                let mut empty = [0u64; 81];
+                for (index, element) in empty.iter_mut().enumerate() {
+                    *element = seeded.gen::<u64>();
+                };
+                empty
             };
-            return boring_constants;
+
+            let o_consts = {
+                let mut empty = [0u64; 81];
+                for (index, element) in empty.iter_mut().enumerate() {
+                    *element = seeded.gen::<u64>();
+                };
+                empty
+            };
+
+            let x_to_move_constant = seeded.gen::<u64>();
+
+            let zobrist_constants = ZobristConstants{
+                x_constants: x_consts,
+                o_constants: o_consts,
+                x_to_move: x_to_move_constant,
+            };
+            return zobrist_constants;
         }
     }
 
-    impl AlphaBetaTTCompatible<u64, UTTTUnmove> for UTTTBoard {
+    impl AlphaBetaTTCompatible<u64, UTTTUnmove, ZobristConstants> for UTTTBoard {
         fn hash_val(&self) -> u64 {
             //TODO: Replace with a Zobrist hashing scheme
             let mut hasher = DefaultHasher::new();
@@ -1290,8 +1371,18 @@ pub mod uttt_trait_solving {
             return self.x_to_move;
         }
 
-        fn make_move(&mut self, a_move: &GameMove) -> UTTTUnmove {
+        fn make_move(&mut self, a_move: &GameMove, zobrist_constants: &ZobristConstants) -> UTTTUnmove {
             let GameMove { x_to_move, move_index: a_move_index } = a_move;
+
+            let original_hash_state = self.hash_state;
+
+            let hash_update: u64 = if *x_to_move {
+                zobrist_constants.x_to_move ^ zobrist_constants.x_constants[*a_move_index as usize]
+            } else {
+                zobrist_constants.x_to_move ^ zobrist_constants.o_constants[*a_move_index as usize]
+            };
+            self.hash_state ^= hash_update;
+
             let SubBoardAndSquare { sub_board_index, sub_square_index } = parse_index(*a_move_index);
 //            eprintln!("{} {}", sub_board_index, sub_square_index);
 
@@ -1336,6 +1427,7 @@ pub mod uttt_trait_solving {
                 move_index: move_to_unmask,
                 super_unmask: a_super_unmask,
                 last_super: sub_board_reset,
+                hash_reset: original_hash_state,
             };
             return unmove;
         }
@@ -1343,13 +1435,15 @@ pub mod uttt_trait_solving {
         fn unmake_move(&mut self, unmove: UTTTUnmove) {
             let UTTTUnmove {
                 x_to_move, move_index,
-                super_unmask, last_super
+                super_unmask, last_super,
+                hash_reset
             } = unmove;
 
             let SubBoardAndSquare{sub_board_index, sub_square_index} = parse_index(move_index);
 
             self.x_to_move = x_to_move;
             self.last_super_index = last_super;
+            self.hash_state = hash_reset;
 
             if x_to_move {
                     self.xbb[sub_board_index] ^= 1 << sub_square_index;
@@ -1445,13 +1539,31 @@ pub mod uttt_trait_solving {
 
     #[cfg(test)]
     mod test {
-        use std::collections::{HashMap};
+        use std::collections::{HashMap, HashSet};
         use std::time;
 
-        use crate::game_solving::{alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, UMCTSNode, uct_value, advance_rollout, reverse_rollout};
+        use crate::game_solving::{alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult,
+                                  UMCTSNode, uct_value, advance_rollout, reverse_rollout};
         use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare};
 
         use super::{UTTTBoard};
+
+        #[test]
+        fn zobrist_constants_test() {
+            let constants = UTTTBoard::get_zobrist_constants();
+
+            let mut start_val = constants.x_to_move;
+
+            let x_iter = constants.x_constants.iter();
+            let o_iter = constants.o_constants.iter();
+
+            let all_hashed = x_iter.chain(o_iter).fold(start_val, |a,b| a^b);
+
+            let expected_allhash = 10891453110652296350u64;
+
+            eprintln!("{} {}", all_hashed, expected_allhash);
+            assert_eq!(expected_allhash, all_hashed);
+        }
 
         #[test]
         fn advance_rollout_test() {
@@ -1464,6 +1576,7 @@ pub mod uttt_trait_solving {
                 x_to_move: false,
                 hash_state: 0,
             };
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let orig_board = uttt_board.clone();
             let mut unmove_queue = Vec::with_capacity(81);
@@ -1480,7 +1593,7 @@ pub mod uttt_trait_solving {
             let mut rollout_count = 0;
             while now_instant.elapsed().as_micros()<time_limit {
                 while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
-                                                                 &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
+                        &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
                     let (new_alpha, new_beta) = new_alpha_beta;
                     search_alpha = new_alpha;
                     search_beta = new_beta;
@@ -1501,7 +1614,8 @@ pub mod uttt_trait_solving {
             }
 
             eprintln!("completed {} rollouts", rollout_count);
-            assert_eq!(rollout_count, 50000);
+            assert_eq!(true, rollout_count>4000);
+//            assert_eq!(rollout_count, 50000);
         }
 
         #[test]
@@ -1554,25 +1668,22 @@ pub mod uttt_trait_solving {
 
         #[test]
         fn make_and_get_moves_test_1() {
-            let mut x = UTTTBoard {
-                xbb: [0u16 ;9],
-                obb: [0u16 ;9],
-                last_super_index: 9,
-                x_supers: 0,
-                o_supers: 0,
-                x_to_move: true,
-                hash_state: 0,
-            };
+            let mut observed_hashes = HashSet::with_capacity(81);
+            let mut x = UTTTBoard::default();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
+
             let board_string = x.display();
             assert_eq!(board_string, ".........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n");
             assert_eq!(x.x_to_move, true);
             assert_eq!(9, x.last_super_index);
             assert_eq!(0, x.o_supers);
             assert_eq!(0, x.x_supers);
+            assert_eq!(false, observed_hashes.contains(&x.hash_state));
+            observed_hashes.insert(x.hash_state);
 
             //testing an x move
             let ttt_move = GameMove { move_index: 40, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             eprintln!("{}\n", board_string);
             assert_eq!(board_string, ".........\n.........\n.........\n.........\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1580,10 +1691,12 @@ pub mod uttt_trait_solving {
             assert_eq!(4, x.last_super_index);
             assert_eq!(0, x.o_supers);
             assert_eq!(0, x.x_supers);
+            assert_eq!(false, observed_hashes.contains(&x.hash_state));
+            observed_hashes.insert(x.hash_state);
 
             //testing an x move
             let ttt_move = GameMove { move_index: 36, x_to_move: false };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             eprintln!("{}\n", board_string);
             assert_eq!(board_string, ".........\n.........\n.........\n...O.....\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1594,7 +1707,7 @@ pub mod uttt_trait_solving {
 
             //testing an x move
             let ttt_move = GameMove { move_index: 0, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
 //            eprintln!("{}\n", board_string);
             assert_eq!(board_string, "X........\n.........\n.........\n...O.....\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1605,7 +1718,7 @@ pub mod uttt_trait_solving {
 
             //testing an x move
             let ttt_move = GameMove { move_index: 4, x_to_move: false };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
 //            eprintln!("{}\n", board_string);
             assert_eq!(board_string, "X........\n.O.......\n.........\n...O.....\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1616,7 +1729,7 @@ pub mod uttt_trait_solving {
 
             //testing an x move
             let ttt_move = GameMove { move_index: 37, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
 //            eprintln!("{}\n", board_string);
             assert_eq!(board_string, "X........\n.O.......\n.........\n...OX....\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1627,7 +1740,7 @@ pub mod uttt_trait_solving {
 
             //testing an x move
             let ttt_move = GameMove { move_index: 13, x_to_move: false };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
 //            eprintln!("{}\n", board_string);
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1637,7 +1750,7 @@ pub mod uttt_trait_solving {
             assert_eq!(0, x.x_supers);
 
             let ttt_move = GameMove { move_index: 43, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
 //            eprintln!("{}\n", board_string);
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n....X....\n.........\n.........\n.........\n");
@@ -1647,7 +1760,7 @@ pub mod uttt_trait_solving {
             assert_eq!(1 << 4, x.x_supers);
 
             let ttt_move = GameMove { move_index: 71, x_to_move: false };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
 //            eprintln!("{}\n", board_string);
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n....X....\n.........\n.........\n.....O...\n");
@@ -1657,7 +1770,7 @@ pub mod uttt_trait_solving {
             assert_eq!(1 << 4, x.x_supers);
 
             let ttt_move = GameMove { move_index: 79, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n....X....\n.........\n.........\n.....O.X.\n");
             assert_eq!(x.x_to_move, false);
@@ -1666,7 +1779,7 @@ pub mod uttt_trait_solving {
             assert_eq!(1 << 4, x.x_supers);
 
             let ttt_move = GameMove { move_index: 69, x_to_move: false };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n....X....\n.........\n.........\n...O.O.X.\n");
             assert_eq!(x.x_to_move, true);
@@ -1675,7 +1788,7 @@ pub mod uttt_trait_solving {
             assert_eq!(1 << 4, x.x_supers);
 
             let ttt_move = GameMove { move_index: 61, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n....X....\n.........\n.........\n.X.O.O.X.\n");
             assert_eq!(x.x_to_move, false);
@@ -1684,7 +1797,7 @@ pub mod uttt_trait_solving {
             assert_eq!(1 << 4, x.x_supers);
 
             let ttt_move = GameMove { move_index: 70, x_to_move: false };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             assert_eq!(board_string, "X........\n.O..O....\n.........\n...OX....\n....X....\n....X....\n.........\n.........\n.X.OOO.X.\n");
             assert_eq!(x.x_to_move, true);
@@ -1727,6 +1840,7 @@ pub mod uttt_trait_solving {
             };
 
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
 
             let expt_start = time::Instant::now();
@@ -1738,7 +1852,7 @@ pub mod uttt_trait_solving {
                     let first_move = moves.get(0);
                     match first_move {
                         Some(a_move) => {
-                            uttt_board.make_move(a_move);
+                            uttt_board.make_move(a_move, &zobrist_constants);
                             move_count += 1;
                         },
                         None => break,
@@ -1765,6 +1879,7 @@ pub mod uttt_trait_solving {
                 x_to_move: true,
                 hash_state: 0,
             };
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
             let board_string = x.display();
             assert_eq!(board_string, ".........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n.........\n");
             assert_eq!(x.x_to_move, true);
@@ -1772,7 +1887,7 @@ pub mod uttt_trait_solving {
 
             //testing an x move
             let ttt_move = GameMove { move_index: 40, x_to_move: true };
-            let unmake_move = x.make_move(&ttt_move);
+            let unmake_move = x.make_move(&ttt_move, &zobrist_constants);
             let board_string = x.display();
             eprintln!("{}", board_string);
             assert_eq!(board_string, ".........\n.........\n.........\n.........\n....X....\n.........\n.........\n.........\n.........\n");
@@ -1798,10 +1913,11 @@ pub mod uttt_trait_solving {
             };
 
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             while x.get_legal_moves(&legal_moves).len() > 0 {
                 let moves = x.get_legal_moves(&legal_moves);
-                x.make_move(&moves[0]);
+                x.make_move(&moves[0], &zobrist_constants);
                 eprintln!("{}", x.display());
                 assert_eq!(true, x.is_valid());
             }
@@ -1824,15 +1940,16 @@ pub mod uttt_trait_solving {
             let mut ttable = HashMap::new();
 
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             while uttt_board.get_win_state() == GameResult::Unresolved {
                 let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                     &mut uttt_board, 1, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves
+                    &mut ttable, &legal_moves, &zobrist_constants
                 );
 
                 let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
-                uttt_board.make_move(&ab_move);
+                uttt_board.make_move(&ab_move, &zobrist_constants);
             }
         }
 
@@ -1855,16 +1972,17 @@ pub mod uttt_trait_solving {
                     x_to_move: true,
                     hash_state: 0,
                 };
+                let zobrist_constants = UTTTBoard::get_zobrist_constants();
                 while uttt_board.get_win_state() == GameResult::Unresolved {
 //                    eprintln!("===========\n{}",uttt_board.display());
                     let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                         &mut uttt_board, 2, std::i8::MIN, std::i8::MAX,
-                        &mut ttable, &legal_moves
+                        &mut ttable, &legal_moves, &zobrist_constants
                     );
 
                     let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
                     if move_index < 100 {
-                        uttt_board.make_move(&ab_move);
+                        uttt_board.make_move(&ab_move, &zobrist_constants);
                         move_count += 1;
                     } else {
                         break
@@ -1895,17 +2013,19 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
+
             let now = time::Instant::now();
             for i in 0..3000 {
                 let mut uttt_board = master_board.clone();
                 while uttt_board.get_win_state() == GameResult::Unresolved {
                     let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                         &mut uttt_board, 4, std::i8::MIN, std::i8::MAX,
-                        &mut ttable,  &legal_moves
+                        &mut ttable,  &legal_moves, &zobrist_constants
                     );
 
                     let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
-                    uttt_board.make_move(&ab_move);
+                    uttt_board.make_move(&ab_move, &zobrist_constants);
                 }
             }
 
@@ -1931,6 +2051,7 @@ pub mod uttt_trait_solving {
             };
 
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
 //            let (board_val, move_index) = alpha_beta_search(
@@ -1939,7 +2060,7 @@ pub mod uttt_trait_solving {
             let search_start = time::Instant::now();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut uttt_board, 8, std::i8::MAX-1, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
             eprintln!("board lower: {}\nboard upper: {}",board_val, board_upper);
@@ -1969,6 +2090,7 @@ pub mod uttt_trait_solving {
             };
 
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
 //            let (board_val, move_index) = alpha_beta_search(
@@ -1977,7 +2099,7 @@ pub mod uttt_trait_solving {
             let search_start = time::Instant::now();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut uttt_board, 5, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
             eprintln!("ttable size: {}", ttable.len());
@@ -2002,6 +2124,7 @@ pub mod uttt_trait_solving {
             };
 
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
 //            let (board_val, move_index) = alpha_beta_search(
@@ -2010,7 +2133,7 @@ pub mod uttt_trait_solving {
             let search_start = time::Instant::now();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut uttt_board, 6, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves
+                &mut ttable, &legal_moves, &zobrist_constants
             );
 
             eprintln!("ttable size: {}", ttable.len());
@@ -2035,6 +2158,7 @@ pub mod uttt_trait_solving {
             };
 
             let default_ordering = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
 
             let mut ttable = HashMap::new();
@@ -2044,7 +2168,7 @@ pub mod uttt_trait_solving {
             let search_start = time::Instant::now();
             let (board_val, board_upper, move_index, found_terminal) = alpha_beta_search(
                 &mut uttt_board, 5, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &default_ordering
+                &mut ttable, &default_ordering, &zobrist_constants
             );
 
             eprintln!("ttable size: {}", ttable.len());
@@ -2080,6 +2204,7 @@ pub fn main() {
         hash_state: 0,
     };
 
+    let zobrist_constants = UTTTBoard::get_zobrist_constants();
     let mut turn_count = 0;
 //    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(2_000_000);
     const COMPETITIVE_AB_DEPTH: u8 = 2;
@@ -2134,7 +2259,7 @@ pub fn main() {
             (-1, -1) => {
 
                 let default_first = GameMove { move_index: 40, x_to_move: uttt_board.x_to_move() };
-                uttt_board.make_move(&default_first);
+                uttt_board.make_move(&default_first, &zobrist_constants);
 
                 let mut rollout_result = 0;
                 let board_hash = uttt_board.hash_val();
@@ -2145,7 +2270,7 @@ pub fn main() {
                     let mut rollout_result = 0;
 
                     while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
-                                                                     &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
+                            &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
                         let (new_alpha, new_beta) = new_alpha_beta;
                         search_alpha = new_alpha;
                         search_beta = new_beta;
@@ -2187,7 +2312,7 @@ pub fn main() {
                 let mut mut_board = uttt_board.clone();
 
                 let best_move = moves.iter().max_by_key(|a_move| {
-                        let undo = uttt_board.make_move(a_move);
+                        let undo = uttt_board.make_move(a_move, &zobrist_constants);
                         let this_hash = uttt_board.hash_val();
                         uttt_board.unmake_move(undo);
                         let child_stats = node_store.get(&this_hash);
@@ -2201,7 +2326,7 @@ pub fn main() {
                 for each_move in moves.iter() {
                     eprintln!("========================");
 //                eprintln!("x to move? {}",each_move.x_to_move);
-                    let undo_move = uttt_board.make_move(each_move);
+                    let undo_move = uttt_board.make_move(each_move, &zobrist_constants);
                     let this_hash = uttt_board.hash_val();
                     uttt_board.unmake_move(undo_move);
                     let child_stats = node_store.get(&this_hash);
@@ -2223,7 +2348,7 @@ pub fn main() {
             (row, col) => {
                 let opp_move_index = parse_index_from_super_coords(row as u8,col as u8);
                 let opp_move = GameMove { move_index: opp_move_index, x_to_move: uttt_board.x_to_move() };
-                uttt_board.make_move(&opp_move);
+                uttt_board.make_move(&opp_move, &zobrist_constants);
                 let x_to_move = uttt_board.x_to_move();
                 eprintln!("board representation pre-move:\n{:?}", uttt_board);
 
@@ -2236,7 +2361,7 @@ pub fn main() {
                     let mut rollout_result = 0;
 
                     while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
-                                                                     &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store){
+                            &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
                         let (new_alpha, new_beta) = new_alpha_beta;
                         search_alpha = new_alpha;
                         search_beta = new_beta;
@@ -2280,7 +2405,7 @@ pub fn main() {
                 let mut mut_board = uttt_board.clone();
 
                 let best_move = moves.iter().max_by_key(|a_move| {
-                    let undo = mut_board.make_move(a_move);
+                    let undo = mut_board.make_move(a_move, &zobrist_constants);
                     let this_hash = mut_board.hash_val();
                     mut_board.unmake_move(undo);
                     let child_stats = node_store.get(&this_hash);
@@ -2296,7 +2421,7 @@ pub fn main() {
                 for each_move in moves.iter() {
                     eprintln!("========================");
 //                eprintln!("x to move? {}",each_move.x_to_move);
-                    let undo_move = uttt_board.make_move(each_move);
+                    let undo_move = uttt_board.make_move(each_move, &zobrist_constants);
                     let this_hash = uttt_board.hash_val();
                     uttt_board.unmake_move(undo_move);
                     let child_stats = node_store.get(&this_hash);
@@ -2320,7 +2445,7 @@ pub fn main() {
                     }
                     eprintln!("");
                 }
-                uttt_board.make_move(best_move);
+                uttt_board.make_move(best_move, &zobrist_constants);
                 best_move.move_index
             },
         };

@@ -1,4 +1,5 @@
 use crate::game_solving::IdentityHasherBuilder;
+//TODO: Generally increase code quality by reducing the number of clippy lints and compiler warnings
 
 pub mod game_solving {
     use std::collections::HashMap;
@@ -190,7 +191,6 @@ pub mod game_solving {
                     (alpha, beta, 0, 0)
                 },
             };
-
             if child_alpha < child_beta {
                 candidate_moves.push((each_move, child_alpha, child_beta, child_visits, child_value ));
             }
@@ -1246,24 +1246,11 @@ pub mod uttt_trait_solving {
         pub fn get_subboard_moves(&self, subboard_index: usize,
               legality_lookup: &[Vec<Vec<Vec<GameMove>>>], side_to_move: bool) -> Vec<GameMove> {
 
-//            eprintln!("generating subboard moves for x? {}",self.x_to_move);
             let xbb = self.xbb[subboard_index];
             let obb = self.obb[subboard_index];
             let side_int = if side_to_move { 1usize} else { 0usize};
             let lookup_moves = &legality_lookup[xbb as usize][obb as usize][side_int];
 
-//            let mut moves = Vec::with_capacity(9);
-//            let occupied = xbb|obb;
-//
-//            for i in 0..9 {
-//                if occupied & 1<<i == 0 {
-//                    let move_index = 9*subboard_index + i;
-//                    moves.push(GameMove{
-//                        x_to_move: self.x_to_move,
-//                        move_index: move_index as u8
-//                    });
-//                }
-//            }
             let adjusted_moves = lookup_moves.iter(
             ).map(|GameMove{x_to_move: side, move_index: a_move_index}|
                 GameMove{x_to_move:side_to_move, move_index: a_move_index+ 9*subboard_index as u8});
@@ -1300,7 +1287,7 @@ pub mod uttt_trait_solving {
         }
 
         pub fn get_zobrist_constants() -> ZobristConstants {
-            //TODO: Implement actual zobrist constant generation, maybe with the rand crate?
+            // zobrist hashing using a seedable RNG, and a seed from random.org
             let mut seeded = rngs::StdRng::seed_from_u64(ZOBRIST_SEED);
 
             let x_consts = {
@@ -1332,10 +1319,9 @@ pub mod uttt_trait_solving {
 
     impl AlphaBetaTTCompatible<u64, UTTTUnmove, ZobristConstants> for UTTTBoard {
         fn hash_val(&self) -> u64 {
-            //TODO: Replace with a Zobrist hashing scheme
-            let mut hasher = DefaultHasher::new();
-            self.hash(&mut hasher);
-            return hasher.finish();
+            //TODO: Try to enforce a consistent hash value. As of now, hash_state is only correct
+            //  for the case where to positions were make_move'd from the start position.
+            return self.hash_state;
         }
 
         fn get_win_state(&self) -> GameResult {
@@ -1468,8 +1454,8 @@ pub mod uttt_trait_solving {
         }
 
         fn get_legal_moves(&self, legality_lookup: &Vec<Vec<Vec<Vec<GameMove>>>>) -> Vec<GameMove> {
-            // TODO: Modify this code to generate legal moves by an array lookup
-            // TODO: Consider generating those legal moves ordered by 'next best (small) TTT move'
+            // TODO: P2: Modify this code to generate legal moves by an array lookup
+            // TODO: P1: Consider generating those legal moves ordered by 'next best (small) TTT move'
             // gather won bitboards, the x/o occupation bitboards, and the total occupation
             // of the bitboard directed by the last move
             let complete_bbs = self.x_supers | self.o_supers | self.get_tied_mask();
@@ -1542,10 +1528,11 @@ pub mod uttt_trait_solving {
         use std::collections::{HashMap, HashSet};
         use std::time;
 
-        use crate::game_solving::{alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult,
-                                  UMCTSNode, uct_value, advance_rollout, reverse_rollout};
+        use crate::game_solving::{
+            alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, UMCTSNode, uct_value,
+            advance_rollout, reverse_rollout, IdentityHasherBuilder
+        };
         use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare};
-
         use super::{UTTTBoard};
 
         #[test]
@@ -1567,30 +1554,25 @@ pub mod uttt_trait_solving {
 
         #[test]
         fn advance_rollout_test() {
-            let mut uttt_board = UTTTBoard {
-                xbb: [0u16,0u16,0u16,0u16,16u16,0u16,0u16,0u16,0u16],
-                obb: [0u16,0u16,0u16,0u16, 0u16,0u16,0u16,0u16,0u16],
-                last_super_index: 4,
-                x_supers: 0,
-                o_supers: 0,
-                x_to_move: false,
-                hash_state: 0,
-            };
-            let zobrist_constants = UTTTBoard::get_zobrist_constants();
-
-            let orig_board = uttt_board.clone();
             let mut unmove_queue = Vec::with_capacity(81);
-            let mut node_store = HashMap::new();
+
+            let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
             let legal_moves = UTTTBoard::get_move_orderings();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut search_alpha = std::i8::MIN;
             let mut search_beta  = std::i8::MAX;
 
-
             let time_limit = 990_000;
-            let now_instant = time::Instant::now();
-
             let mut rollout_count = 0;
+
+
+            let mut uttt_board = UTTTBoard::default();
+            let first_move = GameMove{x_to_move:true, move_index: 40};
+            uttt_board.make_move(&first_move, &zobrist_constants);
+
+            let orig_board = uttt_board.clone();
+            let now_instant = time::Instant::now();
             while now_instant.elapsed().as_micros()<time_limit {
                 while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
                         &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
@@ -1615,7 +1597,7 @@ pub mod uttt_trait_solving {
 
             eprintln!("completed {} rollouts", rollout_count);
             assert_eq!(true, rollout_count>4000);
-//            assert_eq!(rollout_count, 50000);
+            assert_eq!(rollout_count, 50000);
         }
 
         #[test]
@@ -2299,7 +2281,7 @@ pub fn main() {
                             rollout_result
                         },
                         _ => {
-                            //TODO: Figure out what on earth this means!
+                            //TODO: P3: Figure out what on earth this means!
                             search_alpha
                         },
                     };
@@ -2390,7 +2372,7 @@ pub fn main() {
                             rollout_result
                         },
                         _ => {
-                            //TODO: Figure out what on earth this means!
+                            //TODO: P3: Figure out what on earth this means!
                             search_alpha
                         },
                     };

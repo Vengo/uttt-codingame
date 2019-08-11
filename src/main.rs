@@ -21,8 +21,6 @@ fn main() {
     };
 
     let mut turn_count = 0;
-//    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(40_000_000);
-
     let mut legal_moves: Vec<Vec<Vec<Vec<GameMove>>>> = Vec::new();
     let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
@@ -39,9 +37,7 @@ fn main() {
 
     let orig_board = uttt_board.clone();
     let mut unmove_queue = Vec::with_capacity(81);
-//    let mut node_store = HashMap::new();
-//    asdf
-    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
+    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(40_000_000, IdentityHasherBuilder{});
     let mut legal_moves = UTTTBoard::get_move_orderings();
 
     loop {
@@ -52,19 +48,14 @@ fn main() {
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0 {
             legal_moves = UTTTBoard::get_move_orderings();
-            98_000
+            998_000
         } else {
             98_000
         };
 
 
         let mut rollout_count = 0;
-
-
         let board_hash = uttt_board.hash_val();
-
-//        let start_window = ms
-
 
         while turn_start.elapsed().as_micros() < time_limit {
             let mut search_alpha = std::i8::MIN;

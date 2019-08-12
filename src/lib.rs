@@ -45,6 +45,18 @@ pub mod game_solving {
         pub value: i32,
     }
 
+    impl Default for UMCTSNode {
+        fn default() -> UMCTSNode {
+            return UMCTSNode {
+                value_lower: std::i8::MIN,
+                value_upper: std::i8::MAX,
+                visits: 0,
+                value: 0,
+            }
+        }
+    }
+
+
     pub struct MCTSNode<BoardState> {
         game_state: BoardState,
         value_lower: i8,

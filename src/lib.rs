@@ -1,13 +1,9 @@
-use crate::game_solving::IdentityHasherBuilder;
 //TODO: Generally increase code quality by reducing the number of clippy lints and compiler warnings
-
 pub mod game_solving {
     use std::collections::HashMap;
     use std::hash::{Hash, BuildHasher, Hasher};
     use std::cmp::{max,min,Ordering};
     use std::fmt::Display;
-    use itertools::{Itertools, MinMaxResult::{MinMax,OneElement,NoElements}};
-
 
     #[derive(Debug)]
     pub struct HashState {
@@ -82,7 +78,7 @@ pub mod game_solving {
         let adjusted_visit_count = (action_visits + 1) as f32;
         let average_val = (value as f32)/(adjusted_visit_count);
         let explore_contribution = MCTS_LAMBDA * f32::sqrt(
-            f32::ln((node_visits as f32))/(adjusted_visit_count));
+            f32::ln(node_visits as f32)/(adjusted_visit_count));
 
         if x_to_move {
             return OrderedFloat(average_val + explore_contribution);
@@ -125,7 +121,7 @@ pub mod game_solving {
             let start_val = self.hash_val;
             let result = bytes.iter().fold(
                 start_val,
-                |state, next| (state>>8)|((*next as u64)<<56)
+                |state, next| (state>>8)|(u64::from(*next )<<56)
             );
             self.hash_val = result;
             panic!("please use write_u64 exclusively for IdentityHasher.");
@@ -153,13 +149,13 @@ pub mod game_solving {
     }
 
     fn get_optimal<'a>(
-        candidate_moves: &'a Vec<(&GameMove, i8, i8, u32, i32)>,
+        candidate_moves: &'a [(&GameMove, i8, i8, u32, i32)],
         x_to_move:bool,
         board_visits: u32
     ) -> Option<&'a (&'a GameMove, i8, i8, u32, i32)> {
         let opt_tuple = if x_to_move {
             candidate_moves.iter().max_by_key(
-                |(a_move, move_alpha, move_beta, move_visits, move_value)|
+                |(_a_move, _move_alpha, move_beta, move_visits, move_value)|
                     {
                         let uct_val = uct_value(
                             *move_value, board_visits, *move_visits, x_to_move);
@@ -168,7 +164,7 @@ pub mod game_solving {
                     })
         } else {
             candidate_moves.iter().min_by_key(
-                |(a_move, move_alpha, move_beta, move_visits, move_value)|
+                |(_a_move, move_alpha, _move_beta, move_visits, move_value)|
                     {
                         let uct_val = uct_value(
                             *move_value, board_visits, *move_visits, x_to_move);
@@ -186,7 +182,7 @@ pub mod game_solving {
 //    #[inline(never)]
     pub fn get_successors<'a, T: Hash + Eq + Copy + Display, Unmove, HashConstants,
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants>, S: BuildHasher> (
-        all_moves: &'a Vec<GameMove>,
+        all_moves: &'a [GameMove],
         candidate_moves: &mut Vec<(&'a GameMove,i8,i8,u32,i32)>,
         child_hashes: &mut Vec<T>,
         board: &mut BoardState,
@@ -246,7 +242,9 @@ pub mod game_solving {
         let board_lower = a_node.value_lower;
         let board_upper = a_node.value_upper;
 
-        let win_state = board.get_win_state();
+        let alpha = max(board_lower,alpha);
+        let beta = min(board_upper,beta);
+
         let x_to_move = board.x_to_move();
 
 //        eprintln!("win state is: {:?}", win_state);
@@ -265,7 +263,7 @@ pub mod game_solving {
         );
 
         let return_bundle = match opt_tuple {
-            Some(&(move_ref, best_alpha, best_beta, best_visits, best_value)) => {
+            Some(&(move_ref, best_alpha, best_beta, _best_visits, _best_value)) => {
                 let undo = board.make_move(move_ref, zobrist_constants);
                 let new_queue_element = UMCTSQueueElement {
                     undo,
@@ -288,12 +286,11 @@ pub mod game_solving {
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants> + Clone, S: BuildHasher> (
         rollout_result: i8,
         board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
-        board: &mut BoardState, legal_moves: &[Vec<Vec<Vec<GameMove>>>],
+        board: &mut BoardState,
         node_store: &mut HashMap<T,UMCTSNode, S>
     ) -> Option<(i8, i8)> {
 
         let mut update_bounds = true;
-        let mut reverse_count = 0;
 
         while let Some(queue_element) = board_queue.pop(){
 
@@ -344,7 +341,6 @@ pub mod game_solving {
             }
             cached_node.value += i32::from(rollout_result);
             board.unmake_move(undo);
-            reverse_count += 1;
         }
         return None;
     }
@@ -468,7 +464,6 @@ pub mod game_solving {
 
 pub mod ttt_trait_solving {
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
-    use crate::uttt_trait_solving::ZobristConstants;
 
     // tictactoe constants
     const TTT_BOARD_WIDTH: usize = 3;
@@ -1147,8 +1142,7 @@ pub mod ttt_trait_solving {
 }
 
 pub mod uttt_trait_solving {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+
     use std::iter::FromIterator;
     use std::u16;
     use std;
@@ -1158,7 +1152,7 @@ pub mod uttt_trait_solving {
 //    use rand;
 
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
-    use std::cmp::Ordering;
+//    use std::cmp::Ordering;
 
     // tictactoe constants
 //    const UTTT_BOARD_WIDTH: usize = 9;
@@ -1596,7 +1590,7 @@ pub mod uttt_trait_solving {
                 assert_eq!(uttt_board.get_win_state()!= GameResult::Unresolved, true);
 
                 reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
-                                &legal_moves, &mut node_store
+                                &mut node_store
                 );
                 assert_eq!(orig_board, uttt_board);
                 rollout_count +=1;
@@ -2176,9 +2170,8 @@ pub fn main() {
     use crate::uttt_trait_solving::{UTTTBoard,parse_index_from_super_coords};
 //    use crate::game_solving::{umcts, AlphaBetaTTCompatible, GameMove, uct_value,
 //                              MCTSAction, UMCTSNode};
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, MCTSAction, UMCTSNode,
-                             GameResult, advance_rollout, reverse_rollout, uct_value,
-                             IdentityHasher, IdentityHasherBuilder
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, advance_rollout,
+                              reverse_rollout, uct_value, IdentityHasherBuilder
     };
     use std::time;
     use std::collections::HashMap;
@@ -2287,24 +2280,11 @@ pub fn main() {
                         },
                     };
                     reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
-                                    &legal_moves, &mut node_store
+                                    &mut node_store
                     );
                     rollout_count +=1;
                 }
                 let moves = uttt_board.get_legal_moves(&legal_moves);
-//                let mut mut_board = uttt_board.clone();
-
-                let best_move = moves.iter().max_by_key(|a_move| {
-                        let undo = uttt_board.make_move(a_move, &zobrist_constants);
-                        let this_hash = uttt_board.hash_val();
-                        uttt_board.unmake_move(undo);
-                        let child_stats = node_store.get(&this_hash);
-                        let child_visit_count = match child_stats {
-                            Some(node) => node.visits,
-                            None => 0,
-                        };
-                        child_visit_count
-                    }).unwrap();
 
                 for each_move in moves.iter() {
                     eprintln!("========================");
@@ -2336,12 +2316,11 @@ pub fn main() {
                 eprintln!("board representation pre-move:\n{:?}", uttt_board);
 
 //                let mut rollout_result = 0;
-                let board_hash = uttt_board.hash_val();
+//                let board_hash = uttt_board.hash_val();
 
                 while turn_start.elapsed().as_micros() < time_limit {
                     let mut search_alpha = std::i8::MIN;
                     let mut search_beta = std::i8::MAX;
-                    let mut rollout_result = 0;
 
                     while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
                             &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
@@ -2355,19 +2334,19 @@ pub fn main() {
 
                     let rollout_result = match uttt_board.get_win_state() {
                         GameResult::P1Win => {
-                            rollout_result = std::i8::MAX;
+                            let rollout_result = std::i8::MAX;
                             terminal_node.value_lower = rollout_result;
                             terminal_node.value_upper = rollout_result;
                             rollout_result
                         },
                         GameResult::P2Win => {
-                            rollout_result = std::i8::MIN;
+                            let rollout_result = std::i8::MIN;
                             terminal_node.value_lower = rollout_result;
                             terminal_node.value_upper = rollout_result;
                             rollout_result
                         },
                         GameResult::Tie   => {
-                            rollout_result = 0;
+                            let rollout_result = 0;
                             terminal_node.value_lower = rollout_result;
                             terminal_node.value_upper = rollout_result;
                             rollout_result
@@ -2378,7 +2357,7 @@ pub fn main() {
                         },
                     };
                     reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
-                                    &legal_moves, &mut node_store
+                                     &mut node_store
                     );
                     rollout_count +=1;
                 }

@@ -75,7 +75,7 @@ fn main() {
                 };
 //            eprintln!("processing rollout for board hash: {}",uttt_board.hash_val());
             reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
-                            &legal_moves, &mut node_store
+                             &mut node_store
             );
             rollout_count +=1;
         }

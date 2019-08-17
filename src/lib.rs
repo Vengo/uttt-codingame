@@ -57,12 +57,12 @@ pub mod game_solving {
     }
 
 
-    pub struct MCTSNode<BoardState> {
-        game_state: BoardState,
-        value_lower: i8,
-        value_upper: i8,
-        pub actions: Vec<MCTSAction>,
-    }
+//    pub struct MCTSNode<BoardState> {
+//        game_state: BoardState,
+//        value_lower: i8,
+//        value_upper: i8,
+//        pub actions: Vec<MCTSAction>,
+//    }
 
     pub trait AlphaBetaTTCompatible<T: Hash + Eq + Copy, Unmove, HashConstants> {
         fn hash_val(&self) -> T;
@@ -71,12 +71,12 @@ pub mod game_solving {
         fn make_move(&mut self, a_move: &GameMove, zobrist_constants: &HashConstants) -> Unmove;
         fn unmake_move(&mut self, a_move: Unmove);
         fn score(&self) -> i8;
-        fn get_legal_moves(&self, legal_lookup: &Vec<Vec<Vec<Vec<GameMove>>>>) -> Vec<GameMove>;
+        fn get_legal_moves(&self, legal_lookup: &[Vec<Vec<Vec<GameMove>>>]) -> Vec<GameMove>;
         fn display(&self) -> String;
         fn is_valid(&self) -> bool;
     }
 
-    const MCTS_LAMBDA : f32 = 350.;
+    const MCTS_LAMBDA : f32 = 141.4;
 
     pub fn uct_value(value: i32, node_visits: u32, action_visits: u32, x_to_move: bool) -> OrderedFloat {
         let adjusted_visit_count = (action_visits + 1) as f32;
@@ -127,6 +127,8 @@ pub mod game_solving {
                 start_val,
                 |state, next| (state>>8)|((*next as u64)<<56)
             );
+            self.hash_val = result;
+            panic!("please use write_u64 exclusively for IdentityHasher.");
         }
 
         fn write_u64(&mut self, val: u64) {
@@ -177,7 +179,11 @@ pub mod game_solving {
         return opt_tuple;
     }
 
-    #[inline(never)]
+//    pub fn retrieve_successor_statistics(node_store: &mut HashMap<T,UMCTSNode,S>,) -> (i8,i8, u32, i32) {
+//
+//    }
+
+//    #[inline(never)]
     pub fn get_successors<'a, T: Hash + Eq + Copy + Display, Unmove, HashConstants,
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants>, S: BuildHasher> (
         all_moves: &'a Vec<GameMove>,
@@ -186,7 +192,7 @@ pub mod game_solving {
         board: &mut BoardState,
         node_store: &mut HashMap<T,UMCTSNode,S>,
         zobrist_constants: &HashConstants,
-        alpha: i8, beta: i8
+        alpha: i8, beta: i8, parent_visits: u32
     ) {
         for each_move in all_moves.iter() {
             let undo = board.make_move(&each_move, zobrist_constants);
@@ -194,25 +200,30 @@ pub mod game_solving {
             child_hashes.push( successor_hash);
             board.unmake_move(undo);
 
-            let (child_alpha, child_beta, child_visits, child_value) = match node_store.get(&successor_hash) {
-                Some(val) => {
-                    let UMCTSNode{value_lower, value_upper, visits, value} = val;
-                    (alpha.max(*value_lower), beta.min(*value_upper), *visits, *value)
-                },
-                None => {
-                    (alpha, beta, 0, 0)
-                },
+            let (child_alpha, child_beta, child_visits, child_value) = if parent_visits > 1 {
+                match node_store.get(&successor_hash) {
+                    Some(val) => {
+                        let UMCTSNode { value_lower, value_upper, visits, value } = val;
+                        (alpha.max(*value_lower), beta.min(*value_upper), *visits, *value)
+                    },
+                    None => {
+                        (alpha, beta, 0, 0)
+                    },
+                }
+            } else {
+                (alpha, beta, 0, 0)
             };
+
             if child_alpha < child_beta {
                 candidate_moves.push((each_move, child_alpha, child_beta, child_visits, child_value ));
-            }
+            };
         }
     }
 
     pub fn advance_rollout<T: Hash + Eq + Copy + Display, Unmove, HashConstants,
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants> + Clone, S: BuildHasher> (
         board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
-        board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+        board: &mut BoardState, legal_moves: &[Vec<Vec<Vec<GameMove>>>],
         alpha: i8, beta: i8,
         node_store: &mut HashMap<T,UMCTSNode,S>,
         zobrist_constants: &HashConstants,
@@ -246,7 +257,7 @@ pub mod game_solving {
 
         get_successors(
             &all_moves, &mut candidate_moves, &mut child_hashes, board, node_store, zobrist_constants,
-            alpha, beta
+            alpha, beta, board_visits
         );
 
         let opt_tuple = get_optimal(
@@ -277,78 +288,71 @@ pub mod game_solving {
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants> + Clone, S: BuildHasher> (
         rollout_result: i8,
         board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
-        board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+        board: &mut BoardState, legal_moves: &[Vec<Vec<Vec<GameMove>>>],
         node_store: &mut HashMap<T,UMCTSNode, S>
     ) -> Option<(i8, i8)> {
 
+        let mut update_bounds = true;
+        let mut reverse_count = 0;
+
         while let Some(queue_element) = board_queue.pop(){
-
-
 
             let UMCTSQueueElement {
                 undo, board_hash, child_hashes, x_to_move
             } = queue_element;
 
-            let lower_bounds = child_hashes.iter().map(|a_hash|
-                {
-                    match node_store.get(a_hash) {
-                        Some(stored_node) => stored_node.value_lower,
-                        None => std::i8::MIN,
-                    }
-                }
-            ).minmax();
-            let upper_bounds = child_hashes.iter().map(|a_hash|
-                {
-                    match node_store.get(a_hash) {
-                        Some(stored_node) => stored_node.value_upper,
-                        None => std::i8::MAX,
-                    }
-                }
-            ).minmax();
+            let bounds = if update_bounds & x_to_move {
+                let mut lower_bound = std::i8::MIN;
+                let mut upper_bound = std::i8::MIN;
+                for child_hash in child_hashes.iter() {
+                    let (child_lower,child_upper) = match node_store.get(child_hash) {
+                        Some(stored_node) => (stored_node.value_lower, stored_node.value_upper),
+                        None => (std::i8::MIN, std::i8::MAX),
+                    };
+                    lower_bound = max(lower_bound, child_lower);
+                    upper_bound = max(upper_bound, child_upper);
 
-            let new_lower = match lower_bounds {
-                MinMax(min_lower,max_lower) => {
-                    if x_to_move {
-                        max_lower
-                    } else {
-                        min_lower
-                    }
-                },
-                OneElement(lone_lower) => { lone_lower},
-                NoElements => {
-                    eprintln!("error out for codingame: I don't think this is possible...");
-                    panic!("I don't think this is possible...")
-                },
+                    if lower_bound==std::i8::MAX {break;};
+                }
+                (lower_bound, upper_bound)
 
+            } else if update_bounds & !x_to_move {
+                let mut lower_bound = std::i8::MAX;
+                let mut upper_bound = std::i8::MAX;
+                for child_hash in child_hashes.iter() {
+                    let (child_lower,child_upper) = match node_store.get(child_hash) {
+                        Some(stored_node) => (stored_node.value_lower, stored_node.value_upper),
+                        None => (std::i8::MIN, std::i8::MAX),
+                    };
+                    lower_bound = min(lower_bound, child_lower);
+                    upper_bound = min(upper_bound, child_upper);
+
+                    if upper_bound == std::i8::MIN {break;};
+                }
+                (lower_bound, upper_bound)
+            } else {
+                (std::i8::MIN, std::i8::MAX)
             };
 
-            let new_upper = match upper_bounds {
-                MinMax(min_upper,max_upper ) => {
-                    if x_to_move {
-                        max_upper
-                    } else {
-                        min_upper
-                    }
-                },
-                OneElement(lone_upper) => { lone_upper },
-                NoElements => {
-                    eprintln!("error out for codingame: I don't think this is possible...");
-                    panic!("I don't think this is possible...")
-                },
-            };
+            if bounds == (std::i8::MIN, std::i8::MAX) {update_bounds = false;}
 
             let cached_node = node_store.get_mut(&board_hash).unwrap();
-            cached_node.value_upper = new_upper;
-            cached_node.value_lower = new_lower;
+            if update_bounds {
+                let (lower_bound, upper_bound) = bounds;
+                cached_node.value_upper = upper_bound;
+                cached_node.value_lower = lower_bound;
+            }
             cached_node.value += i32::from(rollout_result);
             board.unmake_move(undo);
+            reverse_count += 1;
         }
         return None;
     }
 
-    pub fn alpha_beta_search<T: Hash + Eq + Copy, Unmove, HashConstants> (
+    pub fn alpha_beta_search<T: Hash + Eq + Copy, Unmove, HashConstants, S: BuildHasher> (
         board: &mut impl AlphaBetaTTCompatible<T, Unmove, HashConstants>, depth: u8, alpha: i8, beta: i8,
-        transpositions: &mut HashMap<T, HashState>, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
+        transpositions: &mut HashMap<T, HashState, S>,
+        legal_moves: &[Vec<Vec<Vec<GameMove>>>],
         zobrist_constants: &HashConstants
         ) -> (i8, i8, u8, bool) {
         // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
@@ -413,7 +417,7 @@ pub mod game_solving {
                     for each_move in moves.iter() {
                         assert_eq!(board.x_to_move(),each_move.x_to_move, "side to move mismatch in alpha beta search");
                         let unmake_instructions = board.make_move(&each_move, zobrist_constants);
-                        let (candidate_lower, candidate_upper, _move_index, terminal_search) = {
+                        let (candidate_lower, candidate_upper, _move_index, _terminal_search) = {
 //                        eprintln!("looking at board after move at depth {}. x to play? {}:\n{}",
 //                                  depth, board.x_to_move(), board.display());
                             alpha_beta_search(
@@ -521,7 +525,7 @@ pub mod ttt_trait_solving {
             return self.x_to_move;
         }
 
-        fn make_move(&mut self, a_move: &GameMove, zobrist_constants: &TTTZobrist) -> TTTUnmove {
+        fn make_move(&mut self, a_move: &GameMove, _zobrist_constants: &TTTZobrist) -> TTTUnmove {
 //            pub x_to_move: bool,
 //            pub move_index: u8,
             let unmove = TTTUnmove { x_to_move: self.x_to_move, move_index: a_move.move_index };
@@ -562,7 +566,7 @@ pub mod ttt_trait_solving {
             }
         }
 
-        fn get_legal_moves(&self, _legal_lookup: &Vec<Vec<Vec<Vec<GameMove>>>>) -> Vec<GameMove> {
+        fn get_legal_moves(&self, _legal_lookup: &[Vec<Vec<Vec<GameMove>>>]) -> Vec<GameMove> {
             let occupied_bb = self.xbb | self.obb;
 
             let valid_moves = MOVE_ORDERING.iter().filter_map(|a_move_index| {
@@ -1159,12 +1163,7 @@ pub mod uttt_trait_solving {
     // tictactoe constants
 //    const UTTT_BOARD_WIDTH: usize = 9;
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
-    const SQUARE_ORDERING: [u8; 81] = [40, 36, 38, 42, 39, 41, 44, 37, 43, 4, 0, 2, 6, 3, 5, 8, 1,
-        7, 22, 18, 20, 24, 21, 23, 26, 19, 25, 58, 54, 56, 60, 57, 59, 62, 55, 61, 31, 27, 29, 33,
-        30, 32, 35, 28, 34, 49, 45, 47, 51, 48, 50, 53, 46, 52, 76, 72, 74, 78, 75, 77, 80, 73, 79,
-        13, 9, 11, 15, 12, 14, 17, 10, 16, 67, 63, 65, 69, 66, 68, 71, 64, 70];
 
-//    const MOVE_ORDERING: [u8; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
 
@@ -1264,7 +1263,7 @@ pub mod uttt_trait_solving {
             let lookup_moves = &legality_lookup[xbb as usize][obb as usize][side_int];
 
             let adjusted_moves = lookup_moves.iter(
-            ).map(|GameMove{x_to_move: side, move_index: a_move_index}|
+            ).map(|GameMove{x_to_move: _side, move_index: a_move_index}|
                 GameMove{x_to_move:side_to_move, move_index: a_move_index+ 9*subboard_index as u8});
 
             return adjusted_moves.collect();
@@ -1304,7 +1303,7 @@ pub mod uttt_trait_solving {
 
             let x_consts = {
                 let mut empty = [0u64; 81];
-                for (index, element) in empty.iter_mut().enumerate() {
+                for element in empty.iter_mut() {
                     *element = seeded.gen::<u64>();
                 };
                 empty
@@ -1312,7 +1311,7 @@ pub mod uttt_trait_solving {
 
             let o_consts = {
                 let mut empty = [0u64; 81];
-                for (index, element) in empty.iter_mut().enumerate() {
+                for element in empty.iter_mut() {
                     *element = seeded.gen::<u64>();
                 };
                 empty
@@ -1390,7 +1389,7 @@ pub mod uttt_trait_solving {
             let sub_board_reset = self.last_super_index;
 
             match a_move {
-                GameMove { x_to_move: true, move_index } => {
+                GameMove { x_to_move: true, move_index: _ } => {
                     self.xbb[sub_board_index] ^= 1<<sub_square_index;
                     let result_board = self.xbb[sub_board_index];
 
@@ -1404,7 +1403,7 @@ pub mod uttt_trait_solving {
                     self.last_super_index = sub_square_index as u8;
                     self.x_to_move = false;
                 },
-                GameMove { x_to_move: false, move_index } => {
+                GameMove { x_to_move: false, move_index: _ } => {
                     self.obb[sub_board_index] ^= 1<<sub_square_index;
                     let result_board = self.obb[sub_board_index];
 
@@ -1465,7 +1464,7 @@ pub mod uttt_trait_solving {
             return val;
         }
 
-        fn get_legal_moves(&self, legality_lookup: &Vec<Vec<Vec<Vec<GameMove>>>>) -> Vec<GameMove> {
+        fn get_legal_moves(&self, legality_lookup: &[Vec<Vec<Vec<GameMove>>>]) -> Vec<GameMove> {
             // TODO: P2: Modify this code to generate legal moves by an array lookup
             // TODO: P1: Consider generating those legal moves ordered by 'next best (small) TTT move'
             // gather won bitboards, the x/o occupation bitboards, and the total occupation
@@ -1596,10 +1595,6 @@ pub mod uttt_trait_solving {
 
                 assert_eq!(uttt_board.get_win_state()!= GameResult::Unresolved, true);
 
-    //            rollout_result: i8,
-    //            board_queue: &mut Vec<umcts_queue_element<T,Unmove>>,
-    //            board: &mut BoardState, legal_moves: &Vec<Vec<Vec<Vec<GameMove>>>>,
-    //            node_store: &mut HashMap<T,UMCTSNode>
                 reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
                                 &legal_moves, &mut node_store
                 );
@@ -1956,7 +1951,7 @@ pub mod uttt_trait_solving {
             let legal_moves = UTTTBoard::get_move_orderings();
 
             let now = time::Instant::now();
-            for i in 0..10 {
+            for i in 0..5 {
                 let mut uttt_board = UTTTBoard {
                     xbb: [0u16 ;9],
                     obb: [0u16 ;9],
@@ -2200,17 +2195,14 @@ pub fn main() {
 
     let zobrist_constants = UTTTBoard::get_zobrist_constants();
     let mut turn_count = 0;
-//    let mut node_store: HashMap<u64, UMCTSNode> = HashMap::with_capacity(2_000_000);
-    const COMPETITIVE_AB_DEPTH: u8 = 2;
 
     let mut unmove_queue = Vec::with_capacity(81);
-//    let mut node_store = HashMap::new();
     let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
     let mut legal_moves = Vec::new();
 
 
-    let mut search_alpha = std::i8::MIN;
-    let mut search_beta  = std::i8::MAX;
+//    let mut search_alpha = std::i8::MIN;
+//    let mut search_beta  = std::i8::MAX;
 
     loop {
         // **************************************************************
@@ -2255,13 +2247,10 @@ pub fn main() {
                 let default_first = GameMove { move_index: 40, x_to_move: uttt_board.x_to_move() };
                 uttt_board.make_move(&default_first, &zobrist_constants);
 
-                let mut rollout_result = 0;
-                let board_hash = uttt_board.hash_val();
-
                 while turn_start.elapsed().as_micros() < time_limit {
                     let mut search_alpha = std::i8::MIN;
                     let mut search_beta = std::i8::MAX;
-                    let mut rollout_result = 0;
+//                    let mut rollout_result = 0;
 
                     while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
                             &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
@@ -2275,19 +2264,19 @@ pub fn main() {
 
                     let rollout_result = match uttt_board.get_win_state() {
                         GameResult::P1Win => {
-                            rollout_result = std::i8::MAX;
+                            let rollout_result = std::i8::MAX;
                             terminal_node.value_lower = rollout_result;
                             terminal_node.value_upper = rollout_result;
                             rollout_result
                         },
                         GameResult::P2Win => {
-                            rollout_result = std::i8::MIN;
+                            let rollout_result = std::i8::MIN;
                             terminal_node.value_lower = rollout_result;
                             terminal_node.value_upper = rollout_result;
                             rollout_result
                         },
                         GameResult::Tie   => {
-                            rollout_result = 0;
+                            let rollout_result = 0;
                             terminal_node.value_lower = rollout_result;
                             terminal_node.value_upper = rollout_result;
                             rollout_result
@@ -2303,7 +2292,7 @@ pub fn main() {
                     rollout_count +=1;
                 }
                 let moves = uttt_board.get_legal_moves(&legal_moves);
-                let mut mut_board = uttt_board.clone();
+//                let mut mut_board = uttt_board.clone();
 
                 let best_move = moves.iter().max_by_key(|a_move| {
                         let undo = uttt_board.make_move(a_move, &zobrist_constants);
@@ -2346,7 +2335,7 @@ pub fn main() {
                 let x_to_move = uttt_board.x_to_move();
                 eprintln!("board representation pre-move:\n{:?}", uttt_board);
 
-                let mut rollout_result = 0;
+//                let mut rollout_result = 0;
                 let board_hash = uttt_board.hash_val();
 
                 while turn_start.elapsed().as_micros() < time_limit {

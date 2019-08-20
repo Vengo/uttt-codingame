@@ -24,11 +24,13 @@ fn main() {
 
         // **************************************************************
         let turn_start = time::Instant::now();
-        let time_limit = if turn_count < 2 {
+        let time_limit = if turn_count == 0  {
             legal_moves = UTTTBoard::get_move_orderings();
             9_998_000
-        } else {
+        } else if turn_count == 1 {
             998_000
+        } else {
+            98_000
         };
 
 
@@ -84,7 +86,7 @@ fn main() {
         let mut mut_board = uttt_board.clone();
 
         let best_move_option = moves.iter().max_by_key(|a_move| {
-            let undo = mut_board.make_move(a_move, &zobrist_constants);
+            let undo = mut_board.make_move(**a_move, &zobrist_constants);
             let this_hash = mut_board.hash_val();
             mut_board.unmake_move(undo);
             let child_stats = node_store.get(&this_hash);
@@ -108,7 +110,7 @@ fn main() {
         for each_move in moves.iter() {
             eprintln!("========================");
 //                eprintln!("x to move? {}",each_move.x_to_move);
-            let undo_move = uttt_board.make_move(each_move, &zobrist_constants);
+            let undo_move = uttt_board.make_move(*each_move, &zobrist_constants);
             let this_hash = uttt_board.hash_val();
             uttt_board.unmake_move(undo_move);
             let child_stats = node_store.get(&this_hash);
@@ -128,7 +130,7 @@ fn main() {
 
         }
 
-        uttt_board.make_move(best_move, &zobrist_constants);
+        uttt_board.make_move(*best_move, &zobrist_constants);
 
         turn_count +=1;
         eprintln!("board after move:\n{}", uttt_board.display());

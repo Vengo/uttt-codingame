@@ -34,6 +34,7 @@ pub mod game_solving {
         pub value: i32,
     }
 
+    #[derive(Clone)]
     pub struct UMCTSNode {
         pub value_lower: i8,
         pub value_upper: i8,
@@ -80,10 +81,7 @@ pub mod game_solving {
         }
     }
 
-    const LT: fn(i8, i8) -> bool = |a, b| a.lt(&b);
     const MIN: fn(i8, i8) -> i8 = |a, b| a.min(b);
-
-    const GT: fn(i8, i8) -> bool = |a, b| a.gt(&b);
     const MAX: fn(i8, i8) -> i8 = |a, b| a.max(b);
 
     #[derive(PartialOrd, PartialEq, Debug)]
@@ -142,16 +140,17 @@ pub mod game_solving {
     }
 
     fn get_optimal<'a>(
-        candidate_moves: &'a [(&GameMove, i8, i8, u32, i32)],
+        candidate_moves: &'a [(&GameMove, UMCTSNode)],
         x_to_move:bool,
         board_visits: u32
-    ) -> Option<&'a (&'a GameMove, i8, i8, u32, i32)> {
+    ) -> Option<&'a (&'a GameMove, UMCTSNode)> {
 
 
         if x_to_move {
             candidate_moves.iter().max_by_key(
-                |(_a_move, _move_alpha, move_beta, move_visits, move_value)|
+                |(_a_move, a_node)|
                     {
+                        let UMCTSNode{value_upper: move_beta, visits: move_visits, value: move_value,..}=  a_node;
                         let uct_val = uct_value(
                             *move_value, board_visits, *move_visits, x_to_move);
 //                            eprintln!("successor UCT value: {:?}", uct_val);
@@ -159,8 +158,9 @@ pub mod game_solving {
                     })
         } else {
             candidate_moves.iter().min_by_key(
-                |(_a_move, move_alpha, _move_beta, move_visits, move_value)|
+                |(_a_move, a_node)|
                     {
+                        let UMCTSNode{value_lower: move_alpha, visits: move_visits, value: move_value,..} =  a_node;
                         let uct_val = uct_value(
                             *move_value, board_visits, *move_visits, x_to_move);
                         (move_alpha, uct_val)
@@ -176,37 +176,57 @@ pub mod game_solving {
     pub fn get_successors<'a, T: Hash + Eq + Copy + Display, Unmove, HashConstants,
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants>, S: BuildHasher> (
         all_moves: &'a [GameMove],
-        candidate_moves: &mut Vec<(&'a GameMove,i8,i8,u32,i32)>,
-        child_hashes: &mut Vec<T>,
         board: &mut BoardState,
         node_store: &mut HashMap<T,UMCTSNode,S>,
         zobrist_constants: &HashConstants,
         alpha: i8, beta: i8, parent_visits: u32
-    ) {
+    ) -> (Vec<(&'a GameMove,UMCTSNode)>, Vec<T>) {
+        let legal_move_count = all_moves.len();
+
+        let mut candidate_moves = Vec::with_capacity(legal_move_count);
+        let mut child_hashes = Vec::with_capacity(legal_move_count);
+
         for each_move in all_moves.iter() {
             let undo = board.make_move(*each_move, zobrist_constants);
             let successor_hash= board.hash_val();
             child_hashes.push( successor_hash);
             board.unmake_move(undo);
 
-            let (child_alpha, child_beta, child_visits, child_value) = if parent_visits > 1 {
+            let retrieved_node = if parent_visits > 1 {
                 match node_store.get(&successor_hash) {
                     Some(val) => {
-                        let UMCTSNode { value_lower, value_upper, visits, value } = val;
-                        (alpha.max(*value_lower), beta.min(*value_upper), *visits, *value)
+                        UMCTSNode{
+                            value_lower: alpha.max(val.value_lower),
+                            value_upper: beta.min(val.value_upper),
+                            visits: val.visits,
+                            value: val.value,
+                        }
                     },
                     None => {
-                        (alpha, beta, 0, 0)
+                        UMCTSNode{
+                            value_lower: alpha,
+                            value_upper: beta,
+                            visits: 0,
+                            value: 0,
+                        }
                     },
                 }
             } else {
-                (alpha, beta, 0, 0)
+                UMCTSNode{
+                    value_lower: alpha,
+                    value_upper: beta,
+                    visits: 0,
+                    value: 0,
+                }
             };
 
-            if child_alpha < child_beta {
-                candidate_moves.push((each_move, child_alpha, child_beta, child_visits, child_value ));
+
+            if retrieved_node.value_lower < retrieved_node.value_upper {
+                candidate_moves.push((each_move, retrieved_node));
             };
         }
+
+        (candidate_moves, child_hashes)
     }
 
     pub fn advance_rollout<T: Hash + Eq + Copy + Display, Unmove, HashConstants,
@@ -239,15 +259,11 @@ pub mod game_solving {
         let beta = min(board_upper,beta);
 
         let x_to_move = board.x_to_move();
-
-//        eprintln!("win state is: {:?}", win_state);
         let all_moves = board.get_legal_moves(legal_moves);
 
-        let mut candidate_moves = Vec::with_capacity(40);
-        let mut child_hashes = Vec::with_capacity(40);
 
-        get_successors(
-            &all_moves, &mut candidate_moves, &mut child_hashes, board, node_store, zobrist_constants,
+        let (candidate_moves, child_hashes) = get_successors(
+            &all_moves, board, node_store, zobrist_constants,
             alpha, beta, board_visits
         );
 
@@ -257,8 +273,9 @@ pub mod game_solving {
 
 
         match opt_tuple {
-            Some(&(move_ref, best_alpha, best_beta, _best_visits, _best_value)) => {
-                let undo = board.make_move(*move_ref, zobrist_constants);
+            Some((move_ref, opt_node)) => {
+                let UMCTSNode{value_lower: best_alpha, value_upper: best_beta, ..}= opt_node;
+                let undo = board.make_move(**move_ref, zobrist_constants);
                 let new_queue_element = UMCTSQueueElement {
                     undo,
                     board_hash,
@@ -266,7 +283,7 @@ pub mod game_solving {
                     x_to_move,
                 };
                 board_queue.push(new_queue_element);
-                Some((best_alpha, best_beta))
+                Some((*best_alpha, *best_beta))
             },
             None => {
                 None
@@ -384,10 +401,10 @@ pub mod game_solving {
                 (board.score(),board.score())
             },
             GameResult::Unresolved => {
-                let (_comp, selector, opt_val, start_val): (fn(i8, i8) -> bool, fn(i8, i8) -> i8, i8, i8) = if board.x_to_move() {
-                    (GT, MAX, std::i8::MAX, std::i8::MIN)
+                let (selector, opt_val, start_val): (fn(i8, i8) -> i8, i8, i8) = if board.x_to_move() {
+                    (MAX, std::i8::MAX, std::i8::MIN)
                 } else{
-                    (LT, MIN, std::i8::MIN, std::i8::MAX)
+                    (MIN, std::i8::MIN, std::i8::MAX)
                 };
                 let mut new_lower = start_val;
                 let mut new_upper = start_val;

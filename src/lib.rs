@@ -66,7 +66,7 @@ pub mod game_solving {
         fn make_move(&mut self, a_move: GameMove, zobrist_constants: &HashConstants) -> Unmove;
         fn unmake_move(&mut self, a_move: Unmove);
         fn score(&self) -> i8;
-        fn get_legal_moves(&self, legal_lookup: &[Vec<Vec<Vec<GameMove>>>]) -> Vec<GameMove>;
+        fn get_legal_moves(&self, legal_lookup: &[Vec<GameMove>]) -> Vec<GameMove>;
         fn display(&self) -> String;
         fn is_valid(&self) -> bool;
     }
@@ -234,7 +234,7 @@ pub mod game_solving {
     pub fn advance_rollout<T: Hash + Eq + Copy + Display, Unmove, HashConstants,
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants> + Clone, S: BuildHasher> (
         board_queue: &mut Vec<UMCTSQueueElement<T,Unmove>>,
-        board: &mut BoardState, legal_moves: &[Vec<Vec<Vec<GameMove>>>],
+        board: &mut BoardState, legal_moves: &[Vec<GameMove>],
         alpha: i8, beta: i8,
         node_store: &mut HashMap<T,UMCTSNode,S>,
         zobrist_constants: &HashConstants,
@@ -359,7 +359,7 @@ pub mod game_solving {
     pub fn alpha_beta_search<T: Hash + Eq + Copy, Unmove, HashConstants, S: BuildHasher> (
         board: &mut impl AlphaBetaTTCompatible<T, Unmove, HashConstants>, depth: u8, alpha: i8, beta: i8,
         transpositions: &mut HashMap<T, HashState, S>,
-        legal_moves: &[Vec<Vec<Vec<GameMove>>>],
+        legal_moves: &[Vec<GameMove>],
         zobrist_constants: &HashConstants
         ) -> (i8, i8, u8, bool) {
         // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
@@ -570,7 +570,8 @@ pub mod ttt_trait_solving {
             }
         }
 
-        fn get_legal_moves(&self, _legal_lookup: &[Vec<Vec<Vec<GameMove>>>]) -> Vec<GameMove> {
+        fn get_legal_moves(&self, _legal_lookup: &[Vec<GameMove>]) -> Vec<GameMove> {
+            //TODO: This should probably use the legal lookup directly
             let occupied_bb = self.xbb | self.obb;
 
             MOVE_ORDERING.iter().filter_map(|a_move_index| {
@@ -896,7 +897,7 @@ pub mod ttt_trait_solving {
                 obb: 12,
                 x_to_move: false,
             };
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = TTTZobrist{};
 
             let mut ttable = HashMap::new();
@@ -1049,7 +1050,7 @@ pub mod ttt_trait_solving {
                               mut visited_set: &mut HashSet<u32>, zobrist_constants: &TTTZobrist
             ) {
                 let this_hash = a_board.hash_val();
-                let legal_moves: Vec<Vec<Vec<Vec<GameMove>>>>= Vec::new();
+                let legal_moves = Vec::new();
                 visited_set.insert(this_hash);
 
                 if a_board.get_win_state() == GameResult::Unresolved {
@@ -1079,7 +1080,7 @@ pub mod ttt_trait_solving {
                           mut visited_set: &mut HashSet<u128>, zobrist_constants: &TTTZobrist
             ) {
                 //            eprintln!("hash base: {}", hash_base);
-                let legal_moves: Vec<Vec<Vec<Vec<GameMove>>>>= Vec::new();
+                let legal_moves = Vec::new();
                 visited_set.insert(hash_base);
                 if a_board.get_win_state() == GameResult::Unresolved {
                     let successors = a_board.get_legal_moves(&legal_moves);
@@ -1110,7 +1111,7 @@ pub mod ttt_trait_solving {
                           mut visited_set: &mut HashSet<u128>, zobrist_constants: &TTTZobrist
             ) {
                 //            eprintln!("hash base: {}", hash_base);
-                let legal_moves: Vec<Vec<Vec<Vec<GameMove>>>> = Vec::new();
+                let legal_moves = Vec::new();
                 if a_board.get_win_state() == GameResult::Unresolved {
                     let successors = a_board.get_legal_moves(&legal_moves);
                     for each_move in successors.iter() {
@@ -1251,18 +1252,24 @@ pub mod uttt_trait_solving {
         }
 
         pub fn get_subboard_moves(&self, subboard_index: usize,
-              legality_lookup: &[Vec<Vec<Vec<GameMove>>>], side_to_move: bool) -> Vec<GameMove> {
+              legality_lookup: &[Vec<GameMove>], side_to_move: bool) -> Vec<GameMove> {
 
-            let xbb = self.xbb[subboard_index];
-            let obb = self.obb[subboard_index];
-            let side_int = if side_to_move { 1usize} else { 0usize};
-            let lookup_moves = &legality_lookup[xbb as usize][obb as usize][side_int];
+            let subboard = TTTBoard{
+                xbb: self.xbb[subboard_index],
+                obb: self.obb[subboard_index],
+                x_to_move: side_to_move,
+            };
 
-            let adjusted_moves = lookup_moves.iter(
-            ).map(|GameMove{x_to_move: _side, move_index: a_move_index}|
-                GameMove{x_to_move:side_to_move, move_index: a_move_index+ 9*subboard_index as u8});
-
-            adjusted_moves.collect()
+            let lookup_index = subboard.to_index();
+            match legality_lookup.get(lookup_index as usize) {
+                Some(move_vec) => {
+                    move_vec.iter(
+                    ).map(|GameMove{x_to_move: _side, move_index: a_move_index}|
+                        GameMove{x_to_move:side_to_move, move_index: a_move_index+ 9*subboard_index as u8}
+                    ).collect()
+                },
+                None => panic!("It shouldn't be possible for subboard moves not to find a move vector"),
+            }
         }
 
 
@@ -1364,35 +1371,6 @@ pub mod uttt_trait_solving {
             }
 
             move_vec
-        }
-
-        pub fn get_move_orderings() -> Vec<Vec<Vec<Vec<GameMove>>>> {
-            let mut x_move_vecs = Vec::with_capacity(512);
-            for xbb in 0..512u16 {
-                let mut xbb_moves = Vec::with_capacity(512);
-                for obb in 0..512u16 {
-                    let mut side_to_move_moves = Vec::with_capacity(2);
-                    for x_to_move in &[true, false] {
-                        let mut legal_moves = Vec::with_capacity(9);
-                        if xbb & obb == 0 {
-                            let occupation_mask = xbb|obb;
-                            for i in MOVE_ORDERING.iter() {
-                                if (occupation_mask & (1u16<<i))==0 {
-                                    legal_moves.push(GameMove{
-                                        move_index: *i,
-                                        x_to_move: *x_to_move}
-                                    )
-                                }
-                            }
-                        }
-                        side_to_move_moves.push(legal_moves);
-                    }
-                    xbb_moves.push(side_to_move_moves);
-                }
-                x_move_vecs.push(xbb_moves);
-            }
-
-            x_move_vecs
         }
 
         pub fn get_zobrist_constants() -> ZobristConstants {
@@ -1561,12 +1539,14 @@ pub mod uttt_trait_solving {
             }
         }
 
-        fn get_legal_moves(&self, legality_lookup: &[Vec<Vec<Vec<GameMove>>>]) -> Vec<GameMove> {
+        fn get_legal_moves(&self, legality_lookup: &[Vec<GameMove>]) -> Vec<GameMove> {
             // TODO: P2: Modify this code to generate legal moves by an array lookup
             // TODO: P1: Consider generating those legal moves ordered by 'next best (small) TTT move'
             // gather won bitboards, the x/o occupation bitboards, and the total occupation
             // of the bitboard directed by the last move
             let complete_bbs = self.x_supers | self.o_supers | self.get_tied_mask();
+
+
 
 //            eprintln!("generating moves for x? {}",self.x_to_move);
             // arm 1 9 indicates 'play anywhere', as does directing to a full
@@ -1659,7 +1639,7 @@ pub mod uttt_trait_solving {
             let mut unmove_queue = Vec::with_capacity(81);
 
             let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut search_alpha = std::i8::MIN;
@@ -1919,7 +1899,7 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
 
@@ -1992,7 +1972,7 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             while x.get_legal_moves(&legal_moves).len() > 0 {
@@ -2017,7 +1997,7 @@ pub mod uttt_trait_solving {
             };
             let mut ttable = HashMap::new();
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             while uttt_board.get_win_state() == GameResult::Unresolved {
@@ -2037,7 +2017,7 @@ pub mod uttt_trait_solving {
 //            let mut move_count = 0;
             let mut ttable = HashMap::new();
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
 
             let now = time::Instant::now();
             for _ in 0..5 {
@@ -2079,7 +2059,7 @@ pub mod uttt_trait_solving {
 //            let mut move_count = 0;
             let mut ttable = HashMap::new();
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
 
             let master_board = UTTTBoard {
                 xbb: [0, 0, 0, 0, 4, 0, 0, 0, 0],
@@ -2136,7 +2116,7 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
@@ -2175,7 +2155,7 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
@@ -2210,7 +2190,7 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
-            let legal_moves = UTTTBoard::get_move_orderings();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
             let mut ttable = HashMap::new();
@@ -2244,7 +2224,7 @@ pub mod uttt_trait_solving {
                 hash_state: 0,
             };
 
-            let default_ordering = UTTTBoard::get_move_orderings();
+            let default_ordering = UTTTBoard::get_move_ordering_array();
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
 
@@ -2327,7 +2307,7 @@ pub fn main() {
         // **************************************************************
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0 {
-            legal_moves = UTTTBoard::get_move_orderings();
+            legal_moves = UTTTBoard::get_move_ordering_array();
             990_000
         } else {
             90_000

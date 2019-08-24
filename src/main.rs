@@ -16,7 +16,7 @@ fn main() {
 
     let mut unmove_queue = Vec::with_capacity(81);
     let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(40_000_000, IdentityHasherBuilder{});
-    let mut legal_moves = UTTTBoard::get_move_orderings();
+    let mut legal_moves = UTTTBoard::get_move_ordering_array();
 
     loop {
         // ***************************************************************
@@ -25,7 +25,7 @@ fn main() {
         // **************************************************************
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0  {
-            legal_moves = UTTTBoard::get_move_orderings();
+            legal_moves = UTTTBoard::get_move_ordering_array();
             9_998_000
         } else if turn_count == 1 {
             998_000

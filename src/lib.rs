@@ -3,6 +3,7 @@ pub mod game_solving {
     use std::collections::HashMap;
     use std::hash::{Hash, BuildHasher, Hasher};
     use std::cmp::{max,min,Ordering};
+    use std::ops::Sub;
     use std::fmt::Display;
 
     #[derive(Debug)]
@@ -1167,6 +1168,7 @@ pub mod uttt_trait_solving {
         pub last_super_index: u8,
         pub x_to_move: bool,
         pub hash_state: u64,
+        pub symm_hash_state: [u64;8],
     }
 
     #[derive(PartialEq, Eq, Debug, Clone, Copy)]
@@ -1204,6 +1206,7 @@ pub mod uttt_trait_solving {
         super_unmask: u16,
         last_super: u8,
         hash_reset: u64,
+        symm_reset: [u64; 8],
     }
 
     pub struct ZobristConstants {
@@ -1222,6 +1225,7 @@ pub mod uttt_trait_solving {
                 x_supers: 0,
                 x_to_move: true,
                 hash_state: HASH_DEFAULT,
+                symm_hash_state: [HASH_DEFAULT; 8],
             }
         }
     }
@@ -1268,7 +1272,11 @@ pub mod uttt_trait_solving {
                         GameMove{x_to_move:side_to_move, move_index: a_move_index+ 9*subboard_index as u8}
                     ).collect()
                 },
-                None => panic!("It shouldn't be possible for subboard moves not to find a move vector"),
+                None => {
+                    eprintln!("evaluating subboard {}, index {}, with side to move {}, board representation:\n\t{:?}",
+                              subboard_index, lookup_index, side_to_move, self);
+                    panic!("It shouldn't be possible for subboard moves not to find a move vector")
+                },
             }
         }
 
@@ -1447,12 +1455,14 @@ pub mod uttt_trait_solving {
             let GameMove { x_to_move, move_index: a_move_index } = a_move;
 
             let original_hash_state = self.hash_state;
+            let original_symm_hash= self.symm_hash_state;
 
             let hash_update: u64 = if x_to_move {
                 zobrist_constants.x_to_move ^ zobrist_constants.x_constants[a_move_index as usize]
             } else {
                 zobrist_constants.x_to_move ^ zobrist_constants.o_constants[a_move_index as usize]
             };
+
             self.hash_state ^= hash_update;
 
             let SubBoardAndSquare { sub_board_index, sub_square_index } = parse_index(a_move_index);
@@ -1500,6 +1510,7 @@ pub mod uttt_trait_solving {
                 super_unmask: a_super_unmask,
                 last_super: sub_board_reset,
                 hash_reset: original_hash_state,
+                symm_reset: original_symm_hash,
             }
 
         }
@@ -1508,7 +1519,8 @@ pub mod uttt_trait_solving {
             let UTTTUnmove {
                 x_to_move, move_index,
                 super_unmask, last_super,
-                hash_reset
+                hash_reset,
+                symm_reset
             } = unmove;
 
             let SubBoardAndSquare{sub_board_index, sub_square_index} = parse_index(move_index);
@@ -1516,6 +1528,7 @@ pub mod uttt_trait_solving {
             self.x_to_move = x_to_move;
             self.last_super_index = last_super;
             self.hash_state = hash_reset;
+            self.symm_hash_state = symm_reset;
 
             if x_to_move {
                     self.xbb[sub_board_index] ^= 1 << sub_square_index;
@@ -1614,7 +1627,7 @@ pub mod uttt_trait_solving {
             alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, advance_rollout,
             reverse_rollout, IdentityHasherBuilder
         };
-        use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare};
+        use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare, ZobristConstants};
         use super::{UTTTBoard};
 
         #[test]
@@ -1632,6 +1645,67 @@ pub mod uttt_trait_solving {
 
             eprintln!("{} {}", all_hashed, expected_allhash);
             assert_eq!(expected_allhash, all_hashed);
+        }
+
+        #[test]
+        fn perft_positions_uttt() {
+            let mut visited = HashSet::new();
+            let mut init_board = UTTTBoard::default() ;
+            let zobrist_constants =  UTTTBoard::get_zobrist_constants();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
+
+            fn hash_sucessors(mut a_board: &mut UTTTBoard,
+                              mut visited_set: &mut HashSet<u64>, zobrist_constants: &ZobristConstants,
+                depth: u8, legal_moves: &Vec<Vec<GameMove>>
+            ) {
+                let this_hash = a_board.hash_val();
+                visited_set.insert(this_hash);
+
+                if (depth ==0){
+                    return
+                } else if a_board.get_win_state() == GameResult::Unresolved {
+                    let successors = a_board.get_legal_moves(&legal_moves);
+                    for each_move in &successors {
+                        let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
+                        hash_sucessors(&mut a_board, &mut visited_set, zobrist_constants,depth-1, legal_moves);
+                        a_board.unmake_move(an_unmake);
+                    }
+                }
+            }
+            hash_sucessors(&mut init_board, &mut visited, &zobrist_constants,
+                           6,&legal_moves);
+            assert_eq!(4_116_682, visited.len());
+        }
+
+        #[test]
+        fn perft_paths() {
+            let mut paths = HashSet::new();
+            let mut init_board = UTTTBoard::default() ;
+            let zobrist_constants =  UTTTBoard::get_zobrist_constants();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
+
+            fn hash_paths(hash_base: u128, mut a_board: &mut UTTTBoard,
+                          mut visited_set: &mut HashSet<u128>, zobrist_constants: &ZobristConstants,
+                depth: u8, legal_moves : &Vec<Vec<GameMove>>
+            ) {
+//                eprintln!("perft with depth {}", depth);
+                //            eprintln!("hash base: {}", hash_base);
+                visited_set.insert(hash_base);
+                if depth == 0 {
+                    return
+                } else if a_board.get_win_state() == GameResult::Unresolved {
+                    let successors = a_board.get_legal_moves(&legal_moves);
+                    for each_move in &successors {
+                        let new_base = (hash_base << 8) + (each_move.move_index as u128);
+                        let unmake_move = a_board.make_move(*each_move, &zobrist_constants);
+                        hash_paths(new_base, &mut a_board, &mut visited_set, zobrist_constants, depth-1, legal_moves);
+                        a_board.unmake_move(unmake_move);
+                    }
+                }
+            }
+            hash_paths(1, &mut init_board, &mut paths,
+                       &zobrist_constants, 6, &legal_moves);
+            assert_eq!(4_556_434, paths.len());
         }
 
         #[test]
@@ -1703,6 +1777,7 @@ pub mod uttt_trait_solving {
                 o_supers: 0,
                 x_to_move: false,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
             let board_string = x.display();
             eprintln!("{}",board_string);
@@ -1720,6 +1795,7 @@ pub mod uttt_trait_solving {
                 o_supers: 0,
                 x_to_move: false,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
             let board_string = x.display();
             eprintln!("{}", board_string);
@@ -1897,6 +1973,7 @@ pub mod uttt_trait_solving {
                 o_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let legal_moves = UTTTBoard::get_move_ordering_array();
@@ -1938,6 +2015,7 @@ pub mod uttt_trait_solving {
                 o_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
             let board_string = x.display();
@@ -1970,6 +2048,7 @@ pub mod uttt_trait_solving {
                 x_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let legal_moves = UTTTBoard::get_move_ordering_array();
@@ -1994,6 +2073,7 @@ pub mod uttt_trait_solving {
                 o_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
             let mut ttable = HashMap::new();
 
@@ -2029,6 +2109,7 @@ pub mod uttt_trait_solving {
                     o_supers: 0,
                     x_to_move: true,
                     hash_state: 0,
+                    symm_hash_state: [0; 8],
                 };
                 let zobrist_constants = UTTTBoard::get_zobrist_constants();
                 while uttt_board.get_win_state() == GameResult::Unresolved {
@@ -2069,6 +2150,7 @@ pub mod uttt_trait_solving {
                 o_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let zobrist_constants = UTTTBoard::get_zobrist_constants();
@@ -2114,6 +2196,7 @@ pub mod uttt_trait_solving {
                 x_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let legal_moves = UTTTBoard::get_move_ordering_array();
@@ -2153,6 +2236,7 @@ pub mod uttt_trait_solving {
                 x_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let legal_moves = UTTTBoard::get_move_ordering_array();
@@ -2188,6 +2272,7 @@ pub mod uttt_trait_solving {
                 x_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let legal_moves = UTTTBoard::get_move_ordering_array();
@@ -2222,6 +2307,7 @@ pub mod uttt_trait_solving {
                 x_supers: 0,
                 x_to_move: true,
                 hash_state: 0,
+                symm_hash_state: [0; 8],
             };
 
             let default_ordering = UTTTBoard::get_move_ordering_array();
@@ -2268,6 +2354,7 @@ pub fn main() {
         x_supers: 0,
         x_to_move: true,
         hash_state: 0,
+        symm_hash_state: [0; 8],
     };
 
     let zobrist_constants = UTTTBoard::get_zobrist_constants();

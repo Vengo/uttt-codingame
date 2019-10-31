@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["festivity <nrk139@gmail.com>"]
 edition = "2018"
 
+[build]
+target-cpu = "native"
+
 [dev-dependencies]
 criterion = "0.2"
 

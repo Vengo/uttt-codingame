@@ -4,7 +4,7 @@ extern crate criterion;
 use criterion::Criterion;
 use criterion::black_box;
 
-use uttt::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, umcts};
+use uttt::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search};
 use uttt::uttt_trait_solving::{UTTTBoard};
 use std::collections::HashMap;
 

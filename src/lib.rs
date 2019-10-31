@@ -1157,6 +1157,8 @@ pub mod uttt_trait_solving {
     const ZOBRIST_SEED: u64 = 0x95_62_9A_0C_B8_00_E9_41u64; //generated from random.org
     const HASH_DEFAULT: u64 = 0x8e_6c_65_b8_2e_fd_36_70u64; //generated from random.org
 
+    const SYMMETRY_LOOKUP: [[u8;8];81] = [[0, 60, 20, 80, 0, 60, 20, 80],[1, 61, 19, 79, 3, 57, 23, 77],[2, 62, 18, 78, 6, 54, 26, 74],[3, 57, 23, 77, 1, 61, 19, 79],[4, 58, 22, 76, 4, 58, 22, 76],[5, 59, 21, 75, 7, 55, 25, 73],[6, 54, 26, 74, 2, 62, 18, 78],[7, 55, 25, 73, 5, 59, 21, 75],[8, 56, 24, 72, 8, 56, 24, 72],[9, 69, 11, 71, 27, 33, 47, 53],[10, 70, 10, 70, 30, 30, 50, 50],[11, 71, 9, 69, 33, 27, 53, 47],[12, 66, 14, 68, 28, 34, 46, 52],[13, 67, 13, 67, 31, 31, 49, 49],[14, 68, 12, 66, 34, 28, 52, 46],[15, 63, 17, 65, 29, 35, 45, 51],[16, 64, 16, 64, 32, 32, 48, 48],[17, 65, 15, 63, 35, 29, 51, 45],[18, 78, 2, 62, 54, 6, 74, 26],[19, 79, 1, 61, 57, 3, 77, 23],[20, 80, 0, 60, 60, 0, 80, 20],[21, 75, 5, 59, 55, 7, 73, 25],[22, 76, 4, 58, 58, 4, 76, 22],[23, 77, 3, 57, 61, 1, 79, 19],[24, 72, 8, 56, 56, 8, 72, 24],[25, 73, 7, 55, 59, 5, 75, 21],[26, 74, 6, 54, 62, 2, 78, 18],[27, 33, 47, 53, 9, 69, 11, 71],[28, 34, 46, 52, 12, 66, 14, 68],[29, 35, 45, 51, 15, 63, 17, 65],[30, 30, 50, 50, 10, 70, 10, 70],[31, 31, 49, 49, 13, 67, 13, 67],[32, 32, 48, 48, 16, 64, 16, 64],[33, 27, 53, 47, 11, 71, 9, 69],[34, 28, 52, 46, 14, 68, 12, 66],[35, 29, 51, 45, 17, 65, 15, 63],[36, 42, 38, 44, 36, 42, 38, 44],[37, 43, 37, 43, 39, 39, 41, 41],[38, 44, 36, 42, 42, 36, 44, 38],[39, 39, 41, 41, 37, 43, 37, 43],[40, 40, 40, 40, 40, 40, 40, 40],[41, 41, 39, 39, 43, 37, 43, 37],[42, 36, 44, 38, 38, 44, 36, 42],[43, 37, 43, 37, 41, 41, 39, 39],[44, 38, 42, 36, 44, 38, 42, 36],[45, 51, 29, 35, 63, 15, 65, 17],[46, 52, 28, 34, 66, 12, 68, 14],[47, 53, 27, 33, 69, 9, 71, 11],[48, 48, 32, 32, 64, 16, 64, 16],[49, 49, 31, 31, 67, 13, 67, 13],[50, 50, 30, 30, 70, 10, 70, 10],[51, 45, 35, 29, 65, 17, 63, 15],[52, 46, 34, 28, 68, 14, 66, 12],[53, 47, 33, 27, 71, 11, 69, 9],[54, 6, 74, 26, 18, 78, 2, 62],[55, 7, 73, 25, 21, 75, 5, 59],[56, 8, 72, 24, 24, 72, 8, 56],[57, 3, 77, 23, 19, 79, 1, 61],[58, 4, 76, 22, 22, 76, 4, 58],[59, 5, 75, 21, 25, 73, 7, 55],[60, 0, 80, 20, 20, 80, 0, 60],[61, 1, 79, 19, 23, 77, 3, 57],[62, 2, 78, 18, 26, 74, 6, 54],[63, 15, 65, 17, 45, 51, 29, 35],[64, 16, 64, 16, 48, 48, 32, 32],[65, 17, 63, 15, 51, 45, 35, 29],[66, 12, 68, 14, 46, 52, 28, 34],[67, 13, 67, 13, 49, 49, 31, 31],[68, 14, 66, 12, 52, 46, 34, 28],[69, 9, 71, 11, 47, 53, 27, 33],[70, 10, 70, 10, 50, 50, 30, 30],[71, 11, 69, 9, 53, 47, 33, 27],[72, 24, 56, 8, 72, 24, 56, 8],[73, 25, 55, 7, 75, 21, 59, 5],[74, 26, 54, 6, 78, 18, 62, 2],[75, 21, 59, 5, 73, 25, 55, 7],[76, 22, 58, 4, 76, 22, 58, 4],[77, 23, 57, 3, 79, 19, 61, 1],[78, 18, 62, 2, 74, 26, 54, 6],[79, 19, 61, 1, 77, 23, 57, 3],[80, 20, 60, 0, 80, 20, 60, 0]];
+
     #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub struct UTTTBoard {
         pub xbb: [u16; 9],
@@ -1465,6 +1467,22 @@ pub mod uttt_trait_solving {
 
             self.hash_state ^= hash_update;
 
+            if x_to_move {
+                for (symmetry_index, mapped_move_index) in SYMMETRY_LOOKUP[a_move_index as usize].iter().enumerate(){
+                    let symm_update = zobrist_constants.x_to_move ^
+                        zobrist_constants.x_constants[a_move_index as usize];
+                    self.symm_hash_state[symmetry_index] ^= symm_update;
+                }
+            } else {
+                for (symmetry_index, mapped_move_index) in SYMMETRY_LOOKUP[a_move_index as usize].iter().enumerate(){
+                    let symm_update = zobrist_constants.x_to_move ^
+                        zobrist_constants.o_constants[a_move_index as usize];
+                    self.symm_hash_state[symmetry_index] ^= symm_update;
+                }
+            }
+
+            assert_eq!(true, self.symm_hash_state.contains(&self.hash_state));
+
             let SubBoardAndSquare { sub_board_index, sub_square_index } = parse_index(a_move_index);
 //            eprintln!("{} {}", sub_board_index, sub_square_index);
 
@@ -1658,12 +1676,14 @@ pub mod uttt_trait_solving {
                               mut visited_set: &mut HashSet<u64>, zobrist_constants: &ZobristConstants,
                 depth: u8, legal_moves: &Vec<Vec<GameMove>>
             ) {
-                let this_hash = a_board.hash_val();
-                visited_set.insert(this_hash);
 
-                if (depth ==0){
-                    return
-                } else if a_board.get_win_state() == GameResult::Unresolved {
+                if (depth == 0) {
+                    let this_hash = a_board.hash_val();
+                    visited_set.insert(this_hash);
+                    return;
+                }
+
+                if a_board.get_win_state() == GameResult::Unresolved {
                     let successors = a_board.get_legal_moves(&legal_moves);
                     for each_move in &successors {
                         let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
@@ -1673,8 +1693,48 @@ pub mod uttt_trait_solving {
                 }
             }
             hash_sucessors(&mut init_board, &mut visited, &zobrist_constants,
-                           6,&legal_moves);
-            assert_eq!(4_116_682, visited.len());
+                           5,&legal_moves);
+            assert_eq!(465_192, visited.len());
+        }
+
+        #[test]
+        fn perft_positions_uttt_depths() {
+            let zobrist_constants =  UTTTBoard::get_zobrist_constants();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
+
+            fn hash_sucessors(mut a_board: &mut UTTTBoard,
+                              mut visited_set: &mut HashSet<u64>, zobrist_constants: &ZobristConstants,
+                              depth: u8, legal_moves: &Vec<Vec<GameMove>>
+            ) {
+
+                if (depth == 0) {
+                    let this_hash = a_board.hash_val();
+                    visited_set.insert(this_hash);
+                    return;
+                }
+
+                if a_board.get_win_state() == GameResult::Unresolved {
+                    let successors = a_board.get_legal_moves(&legal_moves);
+                    for each_move in &successors {
+                        let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
+
+                        if depth>0 {
+                            hash_sucessors(&mut a_board, &mut visited_set, zobrist_constants,depth-1, legal_moves);
+                        }
+                        a_board.unmake_move(an_unmake);
+                    }
+                }
+            }
+
+            for depth in 0..=6 {
+                let mut init_board = UTTTBoard::default();
+                let mut visited = HashSet::new();
+                hash_sucessors(&mut init_board, &mut visited, &zobrist_constants,
+                               depth,&legal_moves);
+                eprintln!("visited states at depth {} = {}", depth, visited.len())
+            }
+
+            assert_eq!(1,2);
         }
 
         #[test]
@@ -1688,12 +1748,13 @@ pub mod uttt_trait_solving {
                           mut visited_set: &mut HashSet<u128>, zobrist_constants: &ZobristConstants,
                 depth: u8, legal_moves : &Vec<Vec<GameMove>>
             ) {
-//                eprintln!("perft with depth {}", depth);
-                //            eprintln!("hash base: {}", hash_base);
-                visited_set.insert(hash_base);
-                if depth == 0 {
-                    return
-                } else if a_board.get_win_state() == GameResult::Unresolved {
+
+                if (depth == 0) {
+                    visited_set.insert(hash_base);
+                    return;
+                }
+
+                if a_board.get_win_state() == GameResult::Unresolved {
                     let successors = a_board.get_legal_moves(&legal_moves);
                     for each_move in &successors {
                         let new_base = (hash_base << 8) + (each_move.move_index as u128);
@@ -1704,8 +1765,8 @@ pub mod uttt_trait_solving {
                 }
             }
             hash_paths(1, &mut init_board, &mut paths,
-                       &zobrist_constants, 6, &legal_moves);
-            assert_eq!(4_556_434, paths.len());
+                       &zobrist_constants, 5, &legal_moves);
+            assert_eq!(473_256, paths.len());
         }
 
         #[test]
@@ -1748,8 +1809,8 @@ pub mod uttt_trait_solving {
             }
 
             eprintln!("completed {} rollouts", rollout_count);
-            assert_eq!(true, rollout_count>4000);
-            assert_eq!(rollout_count, 50000);
+            assert_eq!(true, rollout_count>6000);
+//            assert_eq!(rollout_count, 50000);
         }
 
         #[test]

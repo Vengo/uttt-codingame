@@ -3,7 +3,7 @@ pub mod game_solving {
     use std::collections::HashMap;
     use std::hash::{Hash, BuildHasher, Hasher};
     use std::cmp::{max,min,Ordering};
-    use std::fmt::Display;
+    use std::fmt::{Display, Debug};
 
     #[derive(Debug)]
     pub struct HashState {
@@ -363,6 +363,7 @@ pub mod game_solving {
         zobrist_constants: &HashConstants
         ) -> (i8, i8, u8, bool) {
         // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
+//        eprintln!("starting an alphabeta call");
         let node_hash = board.hash_val();
         let mut terminal_found = true;
 
@@ -403,6 +404,7 @@ pub mod game_solving {
                 (board.score(),board.score())
             },
             GameResult::Unresolved => {
+//                eprintln!("board unresolved:\n{}", board.display());
                 let (selector, opt_val, start_val): (fn(i8, i8) -> i8, i8, i8) = if board.x_to_move() {
                     (MAX, std::i8::MAX, std::i8::MIN)
                 } else{
@@ -468,7 +470,7 @@ pub mod game_solving {
         };
 
         transpositions.insert(node_hash, inserted_state);
-
+//        eprintln!("returning from alphabeta");
         (new_lower, new_upper, move_index, terminal_found)
     }
 }
@@ -601,7 +603,7 @@ pub mod ttt_trait_solving {
                 }
                 rows.push(row_rep);
             }
-            rows.join("\n").to_string()
+            rows.join("\n")
         }
 
         fn is_valid(&self) -> bool {
@@ -1149,7 +1151,7 @@ pub mod uttt_trait_solving {
 //    const UTTT_BOARD_WIDTH: usize = 9;
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
 
-    const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
+//    const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
 
 
@@ -1274,11 +1276,11 @@ pub mod uttt_trait_solving {
 
 
         pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
-            let mut valid_count=0;
-            let mut invalid_count = 0;
+//            let mut valid_count=0;
+//            let mut invalid_count = 0;
 
-            let mut move_vec: Vec<Vec<GameMove>> = vec![Vec::with_capacity(0);524288];
-            let mut terminal_conditions = vec![TTTTerminal::default();524288];
+            let mut move_vec: Vec<Vec<GameMove>> = vec![Vec::with_capacity(0); 524_288];
+            let mut terminal_conditions = vec![TTTTerminal::default(); 524_288];
 
             let zobrist_constants = TTTZobrist{};
             let move_lookup = Vec::new();
@@ -1293,12 +1295,12 @@ pub mod uttt_trait_solving {
 
             for ((xbb,obb),x_to_move) in sorted_bbs.rev().cartesian_product(side_iter) {
                 let mut init_board = TTTBoard {
-                    xbb: xbb,
-                    obb: obb,
+                    xbb,
+                    obb,
                     x_to_move: *x_to_move,
                 };
                 if init_board.is_valid() {
-                    valid_count += 1;
+//                    valid_count += 1;
                     let board_index = init_board.to_index();
 
 
@@ -1314,7 +1316,7 @@ pub mod uttt_trait_solving {
                         },
                         Vec::with_capacity(0))
                     } else {
-                        let mut legal_moves = init_board.get_legal_moves(&move_lookup);
+                        let legal_moves = init_board.get_legal_moves(&move_lookup);
 
                         let mut mapped_moves: Vec<(OrderedFloat, u32, &TTTTerminal, &GameMove)> = legal_moves.iter().map(|a_move| {
                             let undo = init_board.make_move(*a_move,&zobrist_constants);
@@ -1331,10 +1333,10 @@ pub mod uttt_trait_solving {
                         if *x_to_move {mapped_moves.reverse()};
 
                         let ordered_moves = mapped_moves.iter().map(
-                            |(_,_,_,a_move)| (*a_move).clone()).collect();
-
+                            |(_,_,_,&a_move)| (a_move)).collect();
+                        
                         let optimal_terminal = match mapped_moves.first() {
-                            Some((_,_,terminal,a_move)) => {*terminal},
+                            Some((_,_,terminal, _a_move)) => {*terminal},
                             None => {panic!("mapped_moves should never be non-empty")},
                         };
 
@@ -1365,7 +1367,7 @@ pub mod uttt_trait_solving {
                     };
 
                 } else {
-                    invalid_count += 1;
+//                    invalid_count += 1;
                 }
 
             }
@@ -2094,8 +2096,75 @@ pub mod uttt_trait_solving {
 
         #[test]
         fn array_legal_lookup() {
+            use crate::ttt_trait_solving::TTTBoard;
 //            let mut uttt_board = UTTTBoard::default();
             let legal_moves = UTTTBoard::get_move_ordering_array();
+
+
+            let test_pos_x_1 = 256+16;
+            let test_pos_o_1 = 4+2;
+            let x_to_move = true;
+
+            let mut init_board = TTTBoard {
+                xbb: test_pos_x_1,
+                obb: test_pos_o_1,
+                x_to_move,
+            };
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 0);
+//            eprintln!("For board:\n{}\n{:?}\n",init_board.display(),lookup_result);
+            init_board.x_to_move=false;
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 0);
+//            eprintln!("For board:\n{}\n{:?}\n",init_board.display(),lookup_result);
+
+//            init_board.get_legal_moves()
+            let test_pos_x_2 = 256+128;
+            let test_pos_o_2 = 4+2;
+            let x_to_move = true;
+
+            let mut init_board = TTTBoard {
+                xbb: test_pos_x_2,
+                obb: test_pos_o_2,
+                x_to_move,
+            };
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 6);
+            init_board.x_to_move=false;
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 0);
+
+//            init_board.get_legal_moves()
+            let test_pos_x_3 = 1+16;
+            let test_pos_o_3 = 64+128;
+            let x_to_move = true;
+
+            let mut init_board = TTTBoard {
+                xbb: test_pos_x_3,
+                obb: test_pos_o_3,
+                x_to_move,
+            };
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 8);
+            init_board.x_to_move=false;
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 8);
+
+//            init_board.get_legal_moves()
+            let test_pos_x_3 = 1+2;
+            let test_pos_o_3 = 64+128;
+            let x_to_move = true;
+
+            let mut init_board = TTTBoard {
+                xbb: test_pos_x_3,
+                obb: test_pos_o_3,
+                x_to_move,
+            };
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 2);
+            init_board.x_to_move=false;
+            let lookup_result = legal_moves.get(init_board.to_index() as usize);
+            assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 8);
 
             assert_eq!(524288, legal_moves.len());
         }

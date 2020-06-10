@@ -1,5 +1,4 @@
 use uttt;
-use FasterUTTT;
 
 fn main() {
     // game loop

@@ -1,21 +1,8 @@
-[package]
-name = "uttt"
-version = "0.1.0"
-authors = ["festivity <nrk139@gmail.com>"]
-edition = "2018"
-
 [workspace]
 members = [
-    "FasterUTTT"
+    "FasterUTTT",
+    "uttt",
 ]
-
-[dev-dependencies]
-criterion = "0.2"
-
-[dependencies]
-FasterUTTT = {path = "FasterUTTT"}
-itertools = "0.8.0"
-rand = "0.6.5"
 
 
 [profile.release]
@@ -24,7 +11,3 @@ debug = true
 [profile.test]
 opt-level = 3
 debug = true
-
-[[bench]]
-name = "uttt_benches"
-harness = false

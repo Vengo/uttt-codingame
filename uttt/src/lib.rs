@@ -1703,36 +1703,6 @@ pub mod uttt_trait_solving {
         }
 
         #[test]
-        fn advance_count_only() {
-            let legal_moves = UTTTBoard::get_move_ordering_array();
-            let zobrist_constants = UTTTBoard::get_zobrist_constants();
-
-            let mut search_alpha = std::i8::MIN;
-            let mut search_beta  = std::i8::MAX;
-
-            let time_limit = 990_000;
-            let mut rollout_count = 0;
-
-
-            let mut uttt_board = UTTTBoard::default();
-            let first_move = GameMove{x_to_move:true, move_index: 40};
-            uttt_board.make_move(first_move, &zobrist_constants);
-
-            let orig_board = uttt_board.clone();
-            let now_instant = time::Instant::now();
-            while now_instant.elapsed().as_micros()<time_limit {
-                uttt_board = orig_board.clone();
-                let rollout_result = search_alpha;
-
-                rollout_count +=1;
-            }
-
-            eprintln!("completed {} rollouts", rollout_count);
-            assert_eq!(true, rollout_count>4000);
-            assert_eq!(rollout_count, 50000);
-        }
-
-        #[test]
         fn advance_rollout_test() {
             let mut unmove_queue = Vec::with_capacity(81);
 

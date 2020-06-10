@@ -476,12 +476,30 @@ pub mod game_solving {
 }
 
 pub mod ttt_trait_solving {
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, OrderedFloat};
+    use std::collections::HashMap;
+    use itertools::Itertools;
+
     // tictactoe constants
     const TTT_BOARD_WIDTH: usize = 3;
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
+
+    #[derive(Clone, PartialOrd, Ord, PartialEq, Eq)]
+    pub struct TTTTerminal {
+        pub terminal_value: i8,
+        pub depth_to_terminal: u8,
+    }
+
+    impl Default for TTTTerminal {
+        fn default() -> TTTTerminal {
+            TTTTerminal{
+                terminal_value: 0,
+                depth_to_terminal: 9,
+            }
+        }
+    }
 
     #[derive(Debug,Clone)]
     pub struct TTTBoard {
@@ -504,6 +522,111 @@ pub mod ttt_trait_solving {
         pub fn to_index(&self) -> u32 {
             ((u32::from(self.xbb) << 10) | (u32::from(self.obb) << 1) | (if self.x_to_move {1u32} else {0u32}))
         }
+
+        fn get_legal_moves_no_lookup(&self) -> Vec<GameMove> {
+            let occupied_bb = self.xbb | self.obb;
+
+            MOVE_ORDERING.iter().filter_map(|a_move_index| {
+                match occupied_bb & (1u16 << a_move_index) {
+                    0 => Some(GameMove { x_to_move: self.x_to_move, move_index: *a_move_index }),
+                    _nonzero => {
+                        None
+                    },
+                }
+            }).collect()
+        }
+
+        pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
+
+            let mut move_vec: Vec<Vec<GameMove>> = vec![Vec::with_capacity(0); 524_288];
+            let mut terminal_conditions = vec![TTTTerminal::default(); 524_288];
+
+            let zobrist_constants = TTTZobrist{};
+//            let move_lookup = Vec::new();
+//            let mut ttable = HashMap::new();
+
+            let xbb_iter = (0..512u16).rev();
+            let obb_iter = (0..512u16).rev();
+            let side_iter = [true,false].iter();
+
+            let bb_iter = xbb_iter.cartesian_product(obb_iter);
+            let sorted_bbs = bb_iter.sorted_by_key(|(a,b)| a.count_ones()+b.count_ones());
+
+            for ((xbb,obb),x_to_move) in sorted_bbs.rev().cartesian_product(side_iter) {
+                let mut init_board = TTTBoard {
+                    xbb,
+                    obb,
+                    x_to_move: *x_to_move,
+                };
+                if init_board.is_valid() {
+                    let board_index = init_board.to_index();
+
+                    let (ttt_terminal, ordered_moves) = if init_board.get_win_state() != GameResult::Unresolved {
+                        (TTTTerminal {
+                            depth_to_terminal: 0,
+                            terminal_value: init_board.score(),
+                        },
+                         Vec::with_capacity(0))
+                    } else {
+                        let legal_moves = init_board.get_legal_moves_no_lookup();
+
+                        let mut mapped_moves: Vec<(OrderedFloat, u32, &TTTTerminal, &GameMove)> = legal_moves.iter().map(|a_move| {
+                            let undo = init_board.make_move(*a_move,&zobrist_constants);
+                            let new_index = init_board.to_index();
+                            let restored_terminal = terminal_conditions.get(new_index as usize).unwrap();
+                            let point_rate = OrderedFloat(
+                                (restored_terminal.terminal_value as f32)/((restored_terminal.depth_to_terminal+1) as f32));
+                            let result_tuple = (point_rate, new_index, restored_terminal,a_move);
+                            init_board.unmake_move(undo);
+                            result_tuple
+                        }).collect();
+                        mapped_moves.sort();
+
+                        if *x_to_move {mapped_moves.reverse()};
+
+                        let ordered_moves = mapped_moves.iter().map(
+                            |(_,_,_,&a_move)| (a_move)).collect();
+
+                        let optimal_terminal = match mapped_moves.first() {
+                            Some((_,_,terminal, _a_move)) => {*terminal},
+                            None => {panic!("mapped_moves should never be non-empty")},
+                        };
+
+                        (TTTTerminal {
+                            depth_to_terminal: optimal_terminal.depth_to_terminal+1,
+                            terminal_value: optimal_terminal.terminal_value,
+                        }, ordered_moves)
+                    };
+
+                    match terminal_conditions.get_mut(board_index as usize) {
+                        Some(terminal_value) => {
+                            *terminal_value = ttt_terminal;
+                        },
+                        None => {
+                            eprintln!("Error finding terminal condition");
+                            panic!("attempted to get a ");
+                        }
+                    };
+
+                    match move_vec.get_mut(board_index as usize) {
+                        Some(move_list) => {
+                            *move_list = ordered_moves;
+                        },
+                        None => {
+                            eprintln!("Error finding terminal condition");
+                            panic!("attempted to get a ");
+                        }
+                    };
+
+                } else {
+//                    invalid_count += 1;
+                }
+
+            }
+
+            move_vec
+        }
+
     }
 
     impl AlphaBetaTTCompatible<u32, TTTUnmove, TTTZobrist> for TTTBoard {
@@ -716,7 +839,7 @@ pub mod ttt_trait_solving {
             let ttt_move = GameMove { move_index: 7, x_to_move: true };
             x.make_move(ttt_move, &zobrist_constants);
             let board_string = x.display();
-            RESULT_MASKS.iter().for_each(|mask| println! {"mask:\t{}\nbitw:\t{}\nxbb:\t{}\n", mask, x.xbb & mask, x.xbb});
+//            RESULT_MASKS.iter().for_each(|mask| println! {"mask:\t{}\nbitw:\t{}\nxbb:\t{}\n", mask, x.xbb & mask, x.xbb});
 
             assert_eq!(board_string, "OXO\n.X.\n.X.");
             assert_eq!(x.x_to_move, false);
@@ -807,7 +930,7 @@ pub mod ttt_trait_solving {
             while x.get_legal_moves(&legal_moves).len() > 0 {
                 let moves = x.get_legal_moves(&legal_moves);
                 x.make_move(moves[0], &zobrist_constants);
-                eprintln!("{}", x.display());
+//                eprintln!("{}", x.display());
                 assert_eq!(true, x.is_valid());
             }
         }
@@ -838,11 +961,11 @@ pub mod ttt_trait_solving {
                     &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
-                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
-                assert_eq!(true, ttt_board.is_valid());
+//                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
+//                assert_eq!(true, ttt_board.is_valid());
 
                 ttt_board.make_move(a_move, &zobrist_constants);
-                eprintln!("{}", ttt_board.display());
+//                eprintln!("{}", ttt_board.display());
             }
             assert_eq!(-128, board_val);
 
@@ -871,20 +994,20 @@ pub mod ttt_trait_solving {
 
 //        let table_entry = ttable.entry(129);
             while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
-                eprintln!("\n====================\n");
+//                eprintln!("\n====================\n");
                 let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                     &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
                     &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
-                eprintln!("board:\n{}\nnext move:{:?}\nevaluation {}", ttt_board.display(), a_move, board_val);
+//                eprintln!("board:\n{}\nnext move:{:?}\nevaluation {}", ttt_board.display(), a_move, board_val);
                 assert_eq!(true, ttt_board.is_valid());
 
                 ttt_board.make_move(a_move, &zobrist_constants);
-                eprintln!("{}", ttt_board.display());
+//                eprintln!("{}", ttt_board.display());
                 assert_eq!(127, board_val);
             }
-            eprintln!("game complete:\n{}", ttt_board.display());
+//            eprintln!("game complete:\n{}", ttt_board.display());
             assert_eq!(127, board_val);
 
             assert_eq!(ttt_board.display(), "X.O\nOX.\n..X");
@@ -952,11 +1075,11 @@ pub mod ttt_trait_solving {
                     &mut ttable, &legal_moves, &zobrist_constants
                 );
                 let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
-                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
+//                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
                 assert_eq!(true, ttt_board.is_valid());
 
                 ttt_board.make_move(a_move, &zobrist_constants);
-                eprintln!("{}", ttt_board.display());
+//                eprintln!("{}", ttt_board.display());
                 assert_eq!(0, board_val);
             }
             assert_eq!(0, board_val);
@@ -1133,7 +1256,6 @@ pub mod ttt_trait_solving {
 }
 
 pub mod uttt_trait_solving {
-
     use std::iter::FromIterator;
     use std::{u16,collections::HashMap};
     use std;
@@ -1142,9 +1264,9 @@ pub mod uttt_trait_solving {
     use rand::{rngs, SeedableRng, Rng};
 //    use rand;
 
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, OrderedFloat};
-    use crate::ttt_trait_solving::{TTTBoard,TTTZobrist};
     use itertools::Itertools;
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, OrderedFloat};
+    use crate::ttt_trait_solving::{TTTBoard,TTTZobrist, TTTTerminal};
 //    use std::cmp::Ordering;
 
     // tictactoe constants
@@ -1228,20 +1350,20 @@ pub mod uttt_trait_solving {
         }
     }
 
-    #[derive(Clone, PartialOrd, Ord, PartialEq, Eq)]
-    struct TTTTerminal {
-        terminal_value: i8,
-        depth_to_terminal: u8,
-    }
-
-    impl Default for TTTTerminal {
-        fn default() -> TTTTerminal {
-            TTTTerminal{
-                terminal_value: 0,
-                depth_to_terminal: 9,
-            }
-        }
-    }
+//    #[derive(Clone, PartialOrd, Ord, PartialEq, Eq)]
+//    struct TTTTerminal {
+//        terminal_value: i8,
+//        depth_to_terminal: u8,
+//    }
+//
+//    impl Default for TTTTerminal {
+//        fn default() -> TTTTerminal {
+//            TTTTerminal{
+//                terminal_value: 0,
+//                depth_to_terminal: 9,
+//            }
+//        }
+//    }
 
     impl UTTTBoard {
         pub fn get_tied_mask(&self) -> u16 {
@@ -1276,103 +1398,7 @@ pub mod uttt_trait_solving {
 
 
         pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
-//            let mut valid_count=0;
-//            let mut invalid_count = 0;
-
-            let mut move_vec: Vec<Vec<GameMove>> = vec![Vec::with_capacity(0); 524_288];
-            let mut terminal_conditions = vec![TTTTerminal::default(); 524_288];
-
-            let zobrist_constants = TTTZobrist{};
-            let move_lookup = Vec::new();
-            let mut ttable = HashMap::new();
-
-            let xbb_iter = (0..512u16).rev();
-            let obb_iter = (0..512u16).rev();
-            let side_iter = [true,false].iter();
-
-            let bb_iter = xbb_iter.cartesian_product(obb_iter);
-            let sorted_bbs = bb_iter.sorted_by_key(|(a,b)| a.count_ones()+b.count_ones());
-
-            for ((xbb,obb),x_to_move) in sorted_bbs.rev().cartesian_product(side_iter) {
-                let mut init_board = TTTBoard {
-                    xbb,
-                    obb,
-                    x_to_move: *x_to_move,
-                };
-                if init_board.is_valid() {
-//                    valid_count += 1;
-                    let board_index = init_board.to_index();
-
-
-                    alpha_beta_search(
-                        &mut init_board, 10, std::i8::MIN, std::i8::MAX,
-                        &mut ttable, &move_lookup, &zobrist_constants
-                    );
-
-                    let (ttt_terminal, ordered_moves) = if init_board.get_win_state() != GameResult::Unresolved {
-                        (TTTTerminal {
-                            depth_to_terminal: 0,
-                            terminal_value: init_board.score(),
-                        },
-                        Vec::with_capacity(0))
-                    } else {
-                        let legal_moves = init_board.get_legal_moves(&move_lookup);
-
-                        let mut mapped_moves: Vec<(OrderedFloat, u32, &TTTTerminal, &GameMove)> = legal_moves.iter().map(|a_move| {
-                            let undo = init_board.make_move(*a_move,&zobrist_constants);
-                            let new_index = init_board.to_index();
-                            let restored_terminal = terminal_conditions.get(new_index as usize).unwrap();
-                            let point_rate = OrderedFloat(
-                                (restored_terminal.terminal_value as f32)/((restored_terminal.depth_to_terminal+1) as f32));
-                            let result_tuple = (point_rate, new_index, restored_terminal,a_move);
-                            init_board.unmake_move(undo);
-                            result_tuple
-                        }).collect();
-                        mapped_moves.sort();
-
-                        if *x_to_move {mapped_moves.reverse()};
-
-                        let ordered_moves = mapped_moves.iter().map(
-                            |(_,_,_,&a_move)| (a_move)).collect();
-                        
-                        let optimal_terminal = match mapped_moves.first() {
-                            Some((_,_,terminal, _a_move)) => {*terminal},
-                            None => {panic!("mapped_moves should never be non-empty")},
-                        };
-
-                        (TTTTerminal {
-                            depth_to_terminal: optimal_terminal.depth_to_terminal+1,
-                            terminal_value: optimal_terminal.terminal_value,
-                        }, ordered_moves)
-                    };
-
-                    match terminal_conditions.get_mut(board_index as usize) {
-                        Some(terminal_value) => {
-                            *terminal_value = ttt_terminal;
-                        },
-                        None => {
-                            eprintln!("Error finding terminal condition");
-                            panic!("attempted to get a ");
-                        }
-                    };
-
-                    match move_vec.get_mut(board_index as usize) {
-                        Some(move_list) => {
-                            *move_list = ordered_moves;
-                        },
-                        None => {
-                            eprintln!("Error finding terminal condition");
-                            panic!("attempted to get a ");
-                        }
-                    };
-
-                } else {
-//                    invalid_count += 1;
-                }
-
-            }
-
-            move_vec
+            TTTBoard::get_move_ordering_array()
         }
 
         pub fn get_zobrist_constants() -> ZobristConstants {
@@ -1634,6 +1660,76 @@ pub mod uttt_trait_solving {
 
             eprintln!("{} {}", all_hashed, expected_allhash);
             assert_eq!(expected_allhash, all_hashed);
+        }
+
+        #[test]
+        fn advance_rollout_test_nobackup() {
+            let mut unmove_queue = Vec::with_capacity(81);
+
+            let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
+            let legal_moves = UTTTBoard::get_move_ordering_array();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
+
+            let mut search_alpha = std::i8::MIN;
+            let mut search_beta  = std::i8::MAX;
+
+            let time_limit = 990_000;
+            let mut rollout_count = 0;
+
+
+            let mut uttt_board = UTTTBoard::default();
+            let first_move = GameMove{x_to_move:true, move_index: 40};
+            uttt_board.make_move(first_move, &zobrist_constants);
+
+            let orig_board = uttt_board.clone();
+            let now_instant = time::Instant::now();
+            while now_instant.elapsed().as_micros()<time_limit {
+                uttt_board = orig_board.clone();
+                while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
+                                                                 &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants){
+//                    let (new_alpha, new_beta) = new_alpha_beta;
+//                    search_alpha = new_alpha;
+//                    search_beta = new_beta;
+                };
+                let rollout_result = search_alpha;
+
+                assert_eq!(uttt_board.get_win_state()!= GameResult::Unresolved, true);
+                rollout_count +=1;
+            }
+
+            eprintln!("completed {} rollouts", rollout_count);
+            assert_eq!(true, rollout_count>4000);
+            assert_eq!(rollout_count, 50000);
+        }
+
+        #[test]
+        fn advance_count_only() {
+            let legal_moves = UTTTBoard::get_move_ordering_array();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
+
+            let mut search_alpha = std::i8::MIN;
+            let mut search_beta  = std::i8::MAX;
+
+            let time_limit = 990_000;
+            let mut rollout_count = 0;
+
+
+            let mut uttt_board = UTTTBoard::default();
+            let first_move = GameMove{x_to_move:true, move_index: 40};
+            uttt_board.make_move(first_move, &zobrist_constants);
+
+            let orig_board = uttt_board.clone();
+            let now_instant = time::Instant::now();
+            while now_instant.elapsed().as_micros()<time_limit {
+                uttt_board = orig_board.clone();
+                let rollout_result = search_alpha;
+
+                rollout_count +=1;
+            }
+
+            eprintln!("completed {} rollouts", rollout_count);
+            assert_eq!(true, rollout_count>4000);
+            assert_eq!(rollout_count, 50000);
         }
 
         #[test]

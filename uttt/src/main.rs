@@ -26,7 +26,7 @@ fn main() {
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0  {
             legal_moves = UTTTBoard::get_move_ordering_array();
-            9_998_000
+            998_000
         } else if turn_count == 1 {
             998_000
         } else {

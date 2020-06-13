@@ -72,7 +72,7 @@ pub mod game_solving {
     }
 
 
-    const MCTS_LAMBDA : f32 = 141.4;
+    const MCTS_LAMBDA : f32 = 1.414*(std::i8::MAX as f32);
 
     pub fn uct_value(value: i32, node_visits: u32, action_visits: u32, x_to_move: bool) -> OrderedFloat {
         let adjusted_visit_count = (action_visits as f32) + 0.01;
@@ -145,6 +145,7 @@ pub mod game_solving {
         x_to_move: bool,
     }
 
+//    #[inline(always)]
     fn get_optimal<'a>(
         candidate_moves: &'a [(&GameMove, UMCTSNode)],
         x_to_move:bool,
@@ -1294,12 +1295,12 @@ pub mod uttt_trait_solving {
     }
 
     #[derive(PartialEq, Eq, Debug, Clone, Copy)]
-    struct SubBoardAndSquare {
-        sub_board_index: usize,
-        sub_square_index: usize,
+    pub struct SubBoardAndSquare {
+        pub sub_board_index: usize,
+        pub sub_square_index: usize,
     }
 
-    fn parse_index(an_index: u8) -> SubBoardAndSquare {
+    pub fn parse_index(an_index: u8) -> SubBoardAndSquare {
         // Returns the sub board [0,8] and sub square [0-8]
         let sub_square = (an_index % 9) as usize;
         let sub_board = (an_index / 9) as usize;
@@ -1331,9 +1332,9 @@ pub mod uttt_trait_solving {
     }
 
     pub struct ZobristConstants {
-        x_constants: [u64; 81],
-        o_constants: [u64; 81],
-        x_to_move: u64,
+        pub x_constants: [u64; 81],
+        pub o_constants: [u64; 81],
+        pub x_to_move: u64,
     }
 
     impl Default for UTTTBoard {
@@ -1642,7 +1643,7 @@ pub mod uttt_trait_solving {
             alpha_beta_search, AlphaBetaTTCompatible, GameMove, GameResult, advance_rollout,
             reverse_rollout, IdentityHasherBuilder
         };
-        use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare};
+        use crate::uttt_trait_solving::{parse_index, SubBoardAndSquare, ZobristConstants};
         use super::{UTTTBoard};
 
         #[test]
@@ -1699,7 +1700,50 @@ pub mod uttt_trait_solving {
 
             eprintln!("completed {} rollouts", rollout_count);
             assert_eq!(true, rollout_count>4000);
-            assert_eq!(rollout_count, 50000);
+        }
+
+        #[test]
+        fn perft_positions() {
+            let mut visited = HashSet::new();
+            let mut init_board = UTTTBoard::default();
+            let zobrist_constants = UTTTBoard::get_zobrist_constants();
+            let legal_moves = UTTTBoard::get_move_ordering_array();
+
+            let mut leaf_count = 0;
+
+            fn hash_sucessors(depth: u8, mut a_board: &mut UTTTBoard,
+                              mut visited_set: &mut HashSet<u64>, legal_moves: &Vec<Vec<GameMove>>,
+                              zobrist_constants: &ZobristConstants, leaf_count: &mut usize
+            ) {
+                let this_hash = a_board.hash_val();
+                visited_set.insert(this_hash);
+
+                if depth == 0 {
+
+                } else if a_board.get_win_state() == GameResult::Unresolved {
+                    let successors = a_board.get_legal_moves(&legal_moves);
+                    if (depth == 1) {
+                        *leaf_count += successors.len();
+                    } else {
+                        for each_move in &successors {
+//                        let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
+//                        hash_sucessors(depth-1,&mut a_board, &mut visited_set, legal_moves, zobrist_constants);
+//                        a_board.unmake_move(an_unmake);
+                            let mut new_board = a_board.clone();
+                            new_board.make_move(*each_move, &zobrist_constants);
+                            hash_sucessors(depth-1,&mut new_board, &mut visited_set, legal_moves, zobrist_constants, leaf_count);
+                        }
+                    }
+                }
+            }
+            for i in 0..=7 {
+                let expt_start = time::Instant::now();
+                let mut leaf_count = 0;
+                hash_sucessors(i,&mut init_board, &mut visited, &legal_moves, &zobrist_constants, &mut leaf_count);
+
+                eprintln!("found {} positions at depth {} in {} ms", visited.len()+leaf_count, i, expt_start.elapsed().as_millis())
+            }
+            assert_eq!(4116682, visited.len()); // Value isn't crucial
         }
 
         #[test]
@@ -1742,8 +1786,8 @@ pub mod uttt_trait_solving {
             }
 
             eprintln!("completed {} rollouts", rollout_count);
-            assert_eq!(true, rollout_count>4000);
-            assert_eq!(rollout_count, 50000);
+            assert_eq!(true, rollout_count>12000, "expected more than 12000 rollouts from starting position");
+//            assert_eq!(rollout_count, 50000);
         }
 
         #[test]

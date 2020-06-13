@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "FasterUTTT",
+    "uttt-tests",
     "uttt",
 ]
 

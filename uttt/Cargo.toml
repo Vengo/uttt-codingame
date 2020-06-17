@@ -7,11 +7,15 @@ edition = "2018"
 [dev-dependencies]
 criterion = "0.2"
 
+[build-dependencies]
+clippy = { version = "*", optional = true }
+
+[features]
+default = []
+
 [dependencies]
 itertools = "0.8.0"
 rand = "0.6.5"
-
-
 
 [[bench]]
 name = "uttt_benches"

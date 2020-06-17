@@ -1,13 +1,15 @@
-[workspace]
-members = [
-    "uttt-tests",
-    "uttt",
-]
-
-
 [profile.release]
+debug = true
+
+[profile.dev]
 debug = true
 
 [profile.test]
 opt-level = 3
 debug = true
+
+[workspace]
+members = [
+    "./uttt-tests",
+    "./uttt"
+]

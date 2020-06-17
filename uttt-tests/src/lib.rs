@@ -587,7 +587,7 @@ mod tests_UTTT {
             rollout_count +=1;
         }
 
-        eprintln!("completed {} rollouts", rollout_count);
+        eprintln!("completed {} rollouts no backup", rollout_count);
         assert_eq!(true, rollout_count>4000);
     }
 
@@ -640,6 +640,7 @@ mod tests_UTTT {
         let mut unmove_queue = Vec::with_capacity(81);
 
         let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
+//        let mut node_store= HashMap::with_capacity(2_000_000, );
         let legal_moves = UTTTBoard::get_move_ordering_array();
         let zobrist_constants = UTTTBoard::get_zobrist_constants();
 
@@ -674,7 +675,7 @@ mod tests_UTTT {
             rollout_count +=1;
         }
 
-        eprintln!("completed {} rollouts", rollout_count);
+        eprintln!("completed {} rollouts with backup", rollout_count);
         assert_eq!(true, rollout_count>12000, "expected more than 12000 rollouts from starting position");
 //            assert_eq!(rollout_count, 50000);
     }

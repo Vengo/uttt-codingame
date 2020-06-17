@@ -33,29 +33,23 @@ pub mod game_solving {
         }
     }
 
-    #[derive(Clone, Debug)]
-    pub struct MCTSAction {
-        pub game_move: GameMove,
-        pub visits: u32,
-        pub value: i32,
-    }
-
-    #[derive(Clone)]
+    #[derive(Clone,Copy)]
     pub struct UMCTSNode {
         pub value_lower: i8,
         pub value_upper: i8,
+        pub best_known: u8,
         pub visits: u32,
         pub value: i32,
     }
 
     impl Default for UMCTSNode {
         fn default() -> UMCTSNode {
-            UMCTSNode {
-                value_lower: std::i8::MIN,
-                value_upper: std::i8::MAX,
-                visits: 0,
-                value: 0,
-            }
+            UMCTSNode {value_lower: std::i8::MIN, value_upper: std::i8::MAX, best_known: std::u8::MAX, visits: 0, value: 0}
+        }
+    }
+    impl UMCTSNode{
+        fn new_windowed(lower:i8, upper:i8) -> UMCTSNode {
+            UMCTSNode{value_lower: lower, value_upper: upper, best_known: std::u8::MAX, visits: 0, value: 0}
         }
     }
 
@@ -108,11 +102,8 @@ pub mod game_solving {
             IdentityHasher{hash_val: 0}
         }
     }
-
     impl Hasher for IdentityHasher {
-        fn finish(&self) -> u64 {
-            self.hash_val
-        }
+        fn finish(&self) -> u64 {self.hash_val}
 
         fn write(&mut self, bytes: &[u8]) {
             let start_val = self.hash_val;
@@ -124,9 +115,7 @@ pub mod game_solving {
             panic!("please use write_u64 exclusively for IdentityHasher.");
         }
 
-        fn write_u64(&mut self, val: u64) {
-            self.hash_val = val;
-        }
+        fn write_u64(&mut self, val: u64) {self.hash_val = val;}
     }
 
     pub struct IdentityHasherBuilder {
@@ -176,6 +165,7 @@ pub mod game_solving {
     }
 
 //    #[inline(never)]
+//    #[inline(always)]
     pub fn get_successors<'a, T: Hash + Eq + Copy + Display, Unmove, HashConstants,
         BoardState: AlphaBetaTTCompatible<T,Unmove,HashConstants>, S: BuildHasher> (
         all_moves: &'a [GameMove],
@@ -201,26 +191,16 @@ pub mod game_solving {
                         UMCTSNode{
                             value_lower: alpha.max(val.value_lower),
                             value_upper: beta.min(val.value_upper),
+                            best_known: std::u8::MAX,
                             visits: val.visits,
                             value: val.value,
                         }
                     },
-                    None => {
-                        UMCTSNode{
-                            value_lower: alpha,
-                            value_upper: beta,
-                            visits: 0,
-                            value: 0,
-                        }
-                    },
+                    None => {UMCTSNode::new_windowed(alpha,beta)},
+
                 }
             } else {
-                UMCTSNode{
-                    value_lower: alpha,
-                    value_upper: beta,
-                    visits: 0,
-                    value: 0,
-                }
+                UMCTSNode::new_windowed(alpha,beta)
             };
 
 
@@ -243,15 +223,7 @@ pub mod game_solving {
 
         let board_hash = board.hash_val();
 
-        let a_node = node_store.entry(board_hash).or_insert(
-            {
-                UMCTSNode{
-                    value_lower: std::i8::MIN,
-                    value_upper: std::i8::MAX,
-                    visits: 0,
-                    value: 0,
-                }
-            });
+        let a_node = node_store.entry(board_hash).or_insert_with(UMCTSNode::default);
         a_node.visits += 1;
 
         let board_visits = a_node.visits;
@@ -477,8 +449,7 @@ pub mod game_solving {
 }
 
 pub mod ttt_trait_solving {
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, OrderedFloat};
-    use std::collections::HashMap;
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, OrderedFloat};
     use itertools::Itertools;
 
     // tictactoe constants
@@ -521,7 +492,7 @@ pub mod ttt_trait_solving {
 
     impl TTTBoard {
         pub fn to_index(&self) -> u32 {
-            ((u32::from(self.xbb) << 10) | (u32::from(self.obb) << 1) | (if self.x_to_move {1u32} else {0u32}))
+            (u32::from(self.xbb) << 10) | (u32::from(self.obb) << 1) | (if self.x_to_move {1u32} else {0u32})
         }
 
         fn get_legal_moves_no_lookup(&self) -> Vec<GameMove> {
@@ -739,26 +710,13 @@ pub mod ttt_trait_solving {
 
 pub mod uttt_trait_solving {
     use std::iter::FromIterator;
-    use std::{u16,collections::HashMap};
-    use std;
-
-    use rand;
     use rand::{rngs, SeedableRng, Rng};
-//    use rand;
-
-    use itertools::Itertools;
-    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search, OrderedFloat};
-    use crate::ttt_trait_solving::{TTTBoard,TTTZobrist, TTTTerminal};
-//    use std::cmp::Ordering;
+    use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
+    use crate::ttt_trait_solving::TTTBoard;
 
     // tictactoe constants
-//    const UTTT_BOARD_WIDTH: usize = 9;
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
-
-//    const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
-
-
     const ZOBRIST_SEED: u64 = 0x95_62_9A_0C_B8_00_E9_41u64; //generated from random.org
     const HASH_DEFAULT: u64 = 0x8e_6c_65_b8_2e_fd_36_70u64; //generated from random.org
 

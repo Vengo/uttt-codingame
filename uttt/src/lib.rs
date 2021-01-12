@@ -1296,7 +1296,7 @@ pub fn main() {
                             eprintln!("no stored statistics found for hash value: {}",this_hash);
                         }
                     }
-                    eprintln!("");
+                    eprintln!();
                 }
                 uttt_board.make_move(*best_move, &zobrist_constants);
                 best_move.move_index

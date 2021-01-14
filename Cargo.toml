@@ -1,27 +1,17 @@
-[package]
-name = "uttt"
-version = "0.1.0"
-authors = ["festivity <nrk139@gmail.com>"]
-edition = "2018"
-
-[build]
-target-cpu = "native"
-
-[dev-dependencies]
-criterion = "0.2"
-
-[dependencies]
-itertools = "0.8.0"
-rand = "0.6.5"
-
-
 [profile.release]
+opt-level = 3
+debug = true
+
+[profile.dev]
+opt-level = 3
 debug = true
 
 [profile.test]
 opt-level = 3
 debug = true
 
-[[bench]]
-name = "uttt_benches"
-harness = false
+[workspace]
+members = [
+    "./uttt-tests",
+    "./uttt"
+]

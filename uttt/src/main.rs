@@ -1,11 +1,12 @@
-use uttt;
 
 fn main() {
     // game loop
+    use std::io::stdin;
     use uttt::uttt_trait_solving::{UTTTBoard};
     use uttt::game_solving::{AlphaBetaTTCompatible, UMCTSNode, GameResult, advance_rollout,
                              reverse_rollout, IdentityHasherBuilder
     };
+    
     use std::time;
     use std::collections::HashMap;
 
@@ -15,7 +16,7 @@ fn main() {
     let mut uttt_board = UTTTBoard::default();
 
     let mut unmove_queue = Vec::with_capacity(81);
-    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(40_000_000, IdentityHasherBuilder{});
+    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder{});
     let mut legal_moves = UTTTBoard::get_move_ordering_array();
 
     loop {
@@ -26,7 +27,7 @@ fn main() {
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0  {
             legal_moves = UTTTBoard::get_move_ordering_array();
-            9_998_000
+            998_000
         } else if turn_count == 1 {
             998_000
         } else {
@@ -35,6 +36,8 @@ fn main() {
 
 
         let mut rollout_count = 0;
+        let mut move_count = 0;
+
 
         while turn_start.elapsed().as_micros() < time_limit {
             let mut search_alpha = std::i8::MIN;
@@ -46,6 +49,12 @@ fn main() {
                 let (new_alpha, new_beta) = new_alpha_beta;
                 search_alpha = new_alpha;
                 search_beta = new_beta;
+
+//                println!("{}",uttt_board.display());
+//                let mut _read_target = String::new();
+//                stdin().read_line(&mut _read_target);
+
+                move_count+=1;
             };
 
             let final_hash = uttt_board.hash_val();
@@ -107,8 +116,9 @@ fn main() {
 
         let moves = uttt_board.get_legal_moves(&legal_moves);
 
+        eprintln!("==== move stat table ====");
+        eprintln!("index\tavg\tvisits\tlower\tupper\tvalue");
         for each_move in moves.iter() {
-            eprintln!("========================");
 //                eprintln!("x to move? {}",each_move.x_to_move);
             let undo_move = uttt_board.make_move(*each_move, &zobrist_constants);
             let this_hash = uttt_board.hash_val();
@@ -117,17 +127,19 @@ fn main() {
 
             match child_stats {
                 Some(node) => {
-                    eprintln!("node avg value: {}",(node.value as f32)/(node.visits as f32));
-                    eprintln!("node visits: {}",node.visits);
-                    eprintln!("node lower/upper: {}\t{}",node.value_lower, node.value_upper);
-                    eprintln!("move index: {}", each_move.move_index);
+                    eprintln!("{}\t{:3.2}\t{}\t{}\t{}\t{}",
+                        each_move.move_index,
+                        (node.value as f32)/(node.visits as f32),
+                        node.visits,
+                        node.value_lower,
+                        node.value_upper,
+                        node.value
+                    );
                 }
                 None => {
                     eprintln!("no stored statistics found for hash value: {}",this_hash);
                 }
             }
-            eprintln!("");
-
         }
 
         uttt_board.make_move(*best_move, &zobrist_constants);
@@ -135,7 +147,7 @@ fn main() {
         turn_count +=1;
         eprintln!("board after move:\n{}", uttt_board.display());
         eprintln!("elapsed microseconds: {}",turn_start.elapsed().as_micros());
-        eprintln!("completed rollouts: {}", rollout_count);
+        eprintln!("rollout stats.\nmoves\trollouts\n{}\t{}", move_count, rollout_count);
         eprintln!("board representation post-move:\n{:?}", uttt_board);
         eprintln!("table size: {}", node_store.len());
     }

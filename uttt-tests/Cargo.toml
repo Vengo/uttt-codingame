@@ -1,0 +1,14 @@
+[package]
+name = "uttt-tests"
+version = "0.1.0"
+authors = ["KellyAnalytics <nrk139@gmail.com>"]
+edition = "2018"
+
+[build-dependencies]
+clippy = { version = "*", optional = true }
+
+[features]
+default = []
+
+[dependencies]
+uttt = {path = "../uttt"}

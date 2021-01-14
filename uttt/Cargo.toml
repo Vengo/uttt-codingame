@@ -1,0 +1,15 @@
+[package]
+name = "uttt"
+version = "0.1.0"
+authors = ["KellyAnalytics <nrk139@gmail.com>"]
+edition = "2018"
+
+[build-dependencies]
+clippy = { version = "*", optional = true }
+
+[features]
+default = []
+
+[dependencies]
+itertools = "0.8.0"
+rand = "0.6.5"

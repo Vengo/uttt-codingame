@@ -50,9 +50,9 @@ fn main() {
                 search_alpha = new_alpha;
                 search_beta = new_beta;
 
-//                println!("{}",uttt_board.display());
-//                let mut _read_target = String::new();
-//                stdin().read_line(&mut _read_target);
+                println!("{}",uttt_board.display());
+                let mut _read_target = String::new();
+                stdin().read_line(&mut _read_target);
 
                 move_count+=1;
             };

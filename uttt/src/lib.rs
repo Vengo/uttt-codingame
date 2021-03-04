@@ -248,7 +248,6 @@ pub mod game_solving {
         );
         eprintln!("{:?}", opt_tuple);
 
-
         match opt_tuple {
             Some((move_ref, opt_node)) => {
                 let UMCTSNode{value_lower: best_alpha, value_upper: best_beta, ..}= opt_node;
@@ -326,7 +325,7 @@ pub mod game_solving {
                 cached_node.value_upper = upper_bound;
                 cached_node.value_lower = lower_bound;
             }
-//            eprint!("cache value with result {:?}\npre\tpost\n{}",rollout_result,cached_node.value);
+//            eprint!("cache value with result {:?}\n pre \t post \n{}",rollout_result,cached_node.value);
             cached_node.value += i32::from(rollout_result);
 //            eprintln!("\t{}",cached_node.value);
             board.unmake_move(undo);
@@ -340,7 +339,7 @@ pub mod game_solving {
         zobrist_constants: &HashConstants
         ) -> (i8, i8, u8, bool) {
         // implemented based on pseudo-code from from https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning
-//        eprintln!("starting an alphabeta call");
+//        eprintln!("starting an alpha beta call");
         let node_hash = board.hash_val();
         let mut terminal_found = true;
 
@@ -447,7 +446,7 @@ pub mod game_solving {
         };
 
         transpositions.insert(node_hash, inserted_state);
-//        eprintln!("returning from alphabeta");
+//        eprintln!("returning from alpha beta");
         (new_lower, new_upper, move_index, terminal_found)
     }
 }
@@ -455,12 +454,14 @@ pub mod game_solving {
 pub mod ttt_trait_solving {
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, OrderedFloat};
     use itertools::Itertools;
+    use std::collections::{VecDeque, HashMap};
 
     // tictactoe constants
     const TTT_BOARD_WIDTH: usize = 3;
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
+    const REACHABLE_BOARD_COUNT: usize = 19_683; // At most 2**3 boards should exist
 
     #[derive(Clone, PartialOrd, Ord, PartialEq, Eq)]
     pub struct TTTTerminal {
@@ -478,10 +479,16 @@ pub mod ttt_trait_solving {
     }
 
     #[derive(Debug,Clone)]
-    pub struct TTTBoard {
+    pub struct TTTState {
         pub xbb: u16,
         pub obb: u16,
         pub x_to_move: bool,
+    }
+
+    #[derive(Debug,Clone,Ord, PartialOrd, Eq, PartialEq, Hash)]
+    pub struct TTTBoard {
+        pub xbb: u16,
+        pub obb: u16
     }
 
 
@@ -494,7 +501,7 @@ pub mod ttt_trait_solving {
         //I'm not ACTUALLY implementing Zobrist constants for normal tictactoe...
     }
 
-    impl TTTBoard {
+    impl TTTState {
         pub fn to_index(&self) -> u32 {
             (u32::from(self.xbb) << 10) | (u32::from(self.obb) << 1) | (if self.x_to_move {1u32} else {0u32})
         }
@@ -519,7 +526,6 @@ pub mod ttt_trait_solving {
 
             let zobrist_constants = TTTZobrist{};
 //            let move_lookup = Vec::new();
-//            let mut ttable = HashMap::new();
 
             let xbb_iter = (0..512u16).rev();
             let obb_iter = (0..512u16).rev();
@@ -529,7 +535,7 @@ pub mod ttt_trait_solving {
             let sorted_bbs = bb_iter.sorted_by_key(|(a,b)| a.count_ones()+b.count_ones());
 
             for ((xbb,obb),x_to_move) in sorted_bbs.rev().cartesian_product(side_iter) {
-                let mut init_board = TTTBoard {
+                let mut init_board = TTTState {
                     xbb,
                     obb,
                     x_to_move: *x_to_move,
@@ -605,7 +611,77 @@ pub mod ttt_trait_solving {
 
     }
 
-    impl AlphaBetaTTCompatible<u32, TTTUnmove, TTTZobrist> for TTTBoard {
+    impl TTTBoard {
+        fn get_win_state(&self) -> GameResult {
+            // check for X or O win patterns, check for a filled board, or return unresolved
+            if RESULT_MASKS.iter().any(|x| (x & self.xbb).eq(x)) {
+                GameResult::P1Win
+            } else if RESULT_MASKS.iter().any(|x| (x & self.obb).eq(x)) {
+                GameResult::P2Win
+            } else if (self.xbb | self.obb) == CAT {
+                GameResult::Tie
+            } else {
+                GameResult::Unresolved
+            }
+        }
+
+        pub fn get_legal_moves_no_lookup(&self, x_to_move:bool) -> Vec<GameMove> {
+            let occupied_bb = self.xbb | self.obb;
+
+            MOVE_ORDERING.iter().filter_map(|a_move_index| {
+                match occupied_bb & (1u16 << a_move_index) {
+                    0 => Some(GameMove { x_to_move: x_to_move, move_index: *a_move_index }),
+                    _nonzero => {
+                        None
+                    },
+                }
+            }).collect()
+        }
+
+        pub fn make_move(&mut self, a_move: GameMove, _zobrist_constants: &TTTZobrist) -> TTTUnmove {
+            let unmove = TTTUnmove { x_to_move: a_move.x_to_move, move_index: a_move.move_index };
+            match a_move {
+                GameMove { x_to_move: true, move_index } => {
+                    self.xbb ^= 1u16 << move_index;
+                },
+                GameMove { x_to_move: false, move_index } => {
+                    self.obb ^= 1u16 << move_index;
+                },
+            }
+            unmove
+        }
+
+        pub fn make_boards() -> Vec<TTTBoard> {
+            let mut expandable_boards: VecDeque<_> = VecDeque::with_capacity(REACHABLE_BOARD_COUNT);
+            let mut board_index = 0usize;
+            let mut numbered_boards = Vec::with_capacity(REACHABLE_BOARD_COUNT);
+            let mut number_lookup = HashMap::with_capacity(REACHABLE_BOARD_COUNT*2);
+
+            let init_board = TTTBoard{xbb:0, obb:0};
+            expandable_boards.push_back(init_board);
+
+            while let Some(board) = expandable_boards.pop_front() {
+                let legal_x_moves = board.get_legal_moves_no_lookup(true);
+                let legal_o_moves = board.get_legal_moves_no_lookup(false);
+                let all_moves = legal_x_moves.iter().chain(legal_o_moves.iter());
+                if GameResult::Unresolved == board.get_win_state() {
+                    for each_move in all_moves {
+                        let mut new_board: TTTBoard = board.clone();
+                        new_board.make_move(each_move.clone(), &TTTZobrist{});
+                        if !number_lookup.contains_key(&new_board) {
+                            number_lookup.insert(new_board.clone(), board_index);
+                            numbered_boards.push(new_board.clone());
+                            expandable_boards.push_back(new_board.clone());
+                            board_index+=1;
+                        }
+                    }
+                }
+            }
+            numbered_boards
+        }
+    }
+
+    impl AlphaBetaTTCompatible<u32, TTTUnmove, TTTZobrist> for TTTState {
         fn hash_val(&self) -> u32 {
             let base_hash = (u32::from(self.xbb)) << 16 | u32::from(self.obb);
 
@@ -716,7 +792,7 @@ pub mod uttt_trait_solving {
     use std::iter::FromIterator;
     use rand::{rngs, SeedableRng, Rng};
     use crate::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult};
-    use crate::ttt_trait_solving::TTTBoard;
+    use crate::ttt_trait_solving::TTTState;
 
     // tictactoe constants
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
@@ -807,7 +883,7 @@ pub mod uttt_trait_solving {
         pub fn get_subboard_moves(&self, subboard_index: usize,
               legality_lookup: &[Vec<GameMove>], side_to_move: bool) -> Vec<GameMove> {
 
-            let subboard = TTTBoard{
+            let subboard = TTTState{
                 xbb: self.xbb[subboard_index],
                 obb: self.obb[subboard_index],
                 x_to_move: side_to_move,
@@ -827,7 +903,7 @@ pub mod uttt_trait_solving {
 
 
         pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
-            TTTBoard::get_move_ordering_array()
+            TTTState::get_move_ordering_array()
         }
 
         pub fn get_zobrist_constants() -> ZobristConstants {
@@ -884,8 +960,8 @@ pub mod uttt_trait_solving {
                 if new_mask | self.o_supers | self.x_supers == CAT {
                     let x_won = self.x_supers.count_ones() as i8;
                     let o_won = self.o_supers.count_ones() as i8;
-                    let heur_score = x_won-o_won;
-                    match heur_score {
+                    let heuristic_score = x_won-o_won;
+                    match heuristic_score {
                         0 => GameResult::Tie,
                         value if value>0 => GameResult::P1Win,
                         _ => GameResult::P2Win,
@@ -1291,7 +1367,7 @@ pub fn main() {
                                           node.visits, x_to_move
                                       )
                             );
-//                            value node vists action vists side to move
+//                            value node visits action visits side to move
                         }
                         None => {
                             eprintln!("no stored statistics found for hash value: {}",this_hash);

@@ -236,17 +236,17 @@ pub mod game_solving {
         let x_to_move = board.x_to_move();
         let all_moves = board.get_legal_moves(legal_moves);
 
-        eprintln!("all_moves in order are:\n{:?}\n", all_moves);
+        // eprintln!("all_moves in order are:\n{:?}\n", all_moves);
         let (candidate_moves, child_hashes) = get_successors(
             &all_moves, board, node_store, zobrist_constants,
             alpha, beta, board_visits
         );
 
-        eprintln!("candidate moves in some order are:\n{:?}\n",candidate_moves);
+        // eprintln!("candidate moves in some order are:\n{:?}\n",candidate_moves);
         let opt_tuple = get_optimal(
             &candidate_moves, x_to_move, board_visits
         );
-        eprintln!("{:?}", opt_tuple);
+        // eprintln!("{:?}", opt_tuple);
 
         match opt_tuple {
             Some((move_ref, opt_node)) => {
@@ -461,7 +461,7 @@ pub mod ttt_trait_solving {
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
-    const REACHABLE_BOARD_COUNT: usize = 19_683; // At most 2**3 boards should exist
+    const REACHABLE_BOARD_COUNT: usize = 18_752; // At most 3**9 boards should exist
 
     #[derive(Clone, PartialOrd, Ord, PartialEq, Eq)]
     pub struct TTTTerminal {
@@ -485,12 +485,23 @@ pub mod ttt_trait_solving {
         pub x_to_move: bool,
     }
 
-    #[derive(Debug,Clone,Ord, PartialOrd, Eq, PartialEq, Hash)]
+    #[derive(Debug,Copy, Clone,Ord, PartialOrd, Eq, PartialEq, Hash)]
     pub struct TTTBoard {
         pub xbb: u16,
         pub obb: u16
     }
 
+    #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
+    pub struct OrderedMoves {
+        move_count : u8,
+        moves : [GameMove;9]
+    }
+    impl OrderedMoves {
+        pub const fn default() -> OrderedMoves {
+            let default_move = GameMove{ x_to_move: true, move_index: 0 };
+            OrderedMoves{move_count:0, moves: [default_move; 9]}
+        }
+    }
 
     pub struct TTTUnmove {
         pub x_to_move: bool,
@@ -612,30 +623,48 @@ pub mod ttt_trait_solving {
     }
 
     impl TTTBoard {
-        fn get_win_state(&self) -> GameResult {
+        const fn get_win_state(&self) -> GameResult {
             // check for X or O win patterns, check for a filled board, or return unresolved
-            if RESULT_MASKS.iter().any(|x| (x & self.xbb).eq(x)) {
-                GameResult::P1Win
-            } else if RESULT_MASKS.iter().any(|x| (x & self.obb).eq(x)) {
-                GameResult::P2Win
-            } else if (self.xbb | self.obb) == CAT {
-                GameResult::Tie
+            let mut mask_index = 0;
+            while mask_index< RESULT_MASKS.len() {
+                if (self.xbb & RESULT_MASKS[mask_index]) == RESULT_MASKS[mask_index] {
+                    return GameResult::P1Win;
+                } else if (self.obb & RESULT_MASKS[mask_index]) == RESULT_MASKS[mask_index] {
+                    return GameResult::P2Win;
+                }
+                mask_index+=1;
+            }
+            if (self.xbb | self.obb) == CAT {
+                return GameResult::Tie;
             } else {
-                GameResult::Unresolved
+                return GameResult::Unresolved;
             }
         }
 
-        pub fn get_legal_moves_no_lookup(&self, x_to_move:bool) -> Vec<GameMove> {
+        pub const fn get_legal_moves_no_lookup(&self, x_to_move:bool) -> OrderedMoves {
             let occupied_bb = self.xbb | self.obb;
 
-            MOVE_ORDERING.iter().filter_map(|a_move_index| {
+            // let mut move_order_copy = MOVE_ORDERING;
+            let mut ordered_moves = OrderedMoves::default();
+            // let mut moves: Vec<GameMove> = Vec::new();
+
+            let mut a_move_index= 0u8;
+            let mut assignedMoves = 0;
+            while ((a_move_index as usize) < MOVE_ORDERING.len()) {
                 match occupied_bb & (1u16 << a_move_index) {
-                    0 => Some(GameMove { x_to_move: x_to_move, move_index: *a_move_index }),
-                    _nonzero => {
-                        None
+                    0 => {
+                        let newMove = GameMove { x_to_move: x_to_move, move_index: a_move_index };
+                        ordered_moves.moves[assignedMoves] = newMove;
+                        ordered_moves.move_count += 1;
+                        assignedMoves += 1;
+                        // moves.push(newMove);
                     },
-                }
-            }).collect()
+                    _ => ()
+                };
+                a_move_index +=1;
+            }
+
+            return ordered_moves;
         }
 
         pub fn make_move(&mut self, a_move: GameMove, _zobrist_constants: &TTTZobrist) -> TTTUnmove {
@@ -651,6 +680,20 @@ pub mod ttt_trait_solving {
             unmove
         }
 
+        pub const fn make_move_const(&self, a_move: GameMove, _zobrist_constants: &TTTZobrist) -> (TTTUnmove, TTTBoard) {
+            let mut board_copy = *self;
+            let unmove = TTTUnmove { x_to_move: a_move.x_to_move, move_index: a_move.move_index };
+            match a_move {
+                GameMove { x_to_move: true, move_index } => {
+                    board_copy.xbb ^= 1u16 << move_index;
+                },
+                GameMove { x_to_move: false, move_index } => {
+                    board_copy.obb ^= 1u16 << move_index;
+                },
+            }
+            (unmove, board_copy)
+        }
+
         pub fn make_boards() -> Vec<TTTBoard> {
             let mut expandable_boards: VecDeque<_> = VecDeque::with_capacity(REACHABLE_BOARD_COUNT);
             let mut board_index = 0usize;
@@ -661,11 +704,21 @@ pub mod ttt_trait_solving {
             expandable_boards.push_back(init_board);
 
             while let Some(board) = expandable_boards.pop_front() {
-                let legal_x_moves = board.get_legal_moves_no_lookup(true);
-                let legal_o_moves = board.get_legal_moves_no_lookup(false);
-                let all_moves = legal_x_moves.iter().chain(legal_o_moves.iter());
+                let mut legal_x_moves = board.get_legal_moves_no_lookup(true);
+                let mut legal_o_moves = board.get_legal_moves_no_lookup(false);
+                let mut all_legal_moves = Vec::new();
+                for move_index in 0..legal_x_moves.move_count {
+                    all_legal_moves.push(legal_x_moves.moves[move_index as usize])
+                }
+                for move_index in 0..legal_o_moves.move_count {
+                    all_legal_moves.push(legal_o_moves.moves[move_index as usize]);
+                }
+                // all_legal_moves.append(&legal_x_moves.moves);
+                // all_legal_moves.append(&mut legal_o_moves);
+                // legal_x_moves.append(&mut legal_o_moves);
+                // let all_moves = legal_x_moves.iter().chain(legal_o_moves.iter());
                 if GameResult::Unresolved == board.get_win_state() {
-                    for each_move in all_moves {
+                    while let Some(each_move) = all_legal_moves.pop() {
                         let mut new_board: TTTBoard = board.clone();
                         new_board.make_move(each_move.clone(), &TTTZobrist{});
                         if !number_lookup.contains_key(&new_board) {
@@ -675,6 +728,7 @@ pub mod ttt_trait_solving {
                             board_index+=1;
                         }
                     }
+                    // for each_move in all_moves {}
                 }
             }
             numbered_boards

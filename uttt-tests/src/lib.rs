@@ -12,13 +12,17 @@ mod tests_ttt {
 
     use uttt::ttt_trait_solving::{TTTState, TTTBoard, TTTZobrist};
     use uttt::game_solving::{AlphaBetaTTCompatible, alpha_beta_search, GameMove, GameResult};
+    use std::iter::FromIterator;
 
     #[test]
     fn test_board_gen() {
         let boards = TTTBoard::make_boards();
 
         eprintln!("found {} boards", boards.len());
-        assert!(true==false)
+        let boardSet: HashSet<TTTBoard> = HashSet::from_iter(boards.iter().cloned());
+        eprintln!("found {} unique boards", boardSet.len());
+        assert_eq!(boards.len(),boardSet.len(), "BoardSet and BoardVec have different count, but make_boards should generate unique states");
+        assert_eq!(boards.len(),18752, "found a number of boards other than 18_752");
     }
 
     #[test]
@@ -43,7 +47,7 @@ mod tests_ttt {
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
 
-        assert!(false);
+        assert_eq!(true, false, "just making the tests visible in my IDE");
     }
 
     #[test]

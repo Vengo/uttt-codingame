@@ -23,6 +23,7 @@ mod tests_ttt {
         eprintln!("found {} unique boards", boardSet.len());
         assert_eq!(boards.len(),boardSet.len(), "BoardSet and BoardVec have different count, but make_boards should generate unique states");
         assert_eq!(boards.len(),18752, "found a number of boards other than 18_752");
+        assert_eq!(true, false, "just making the tests visible in my IDE");
     }
 
     #[test]
@@ -658,14 +659,14 @@ mod tests_uttt {
                 }
             }
         }
-        for i in 0..=5 {
+        for i in 0..=7 {
             let expt_start = time::Instant::now();
             let mut leaf_count = 0;
             hash_successors(i, &mut init_board, &mut visited, &legal_moves, &zobrist_constants, &mut leaf_count);
 
             eprintln!("found {} positions at depth {} in {} ms", visited.len() + leaf_count, i, expt_start.elapsed().as_millis())
         }
-        assert_eq!(59122, visited.len()); // Value isn't crucial
+        assert_eq!(4116682, visited.len()); // Value isn't crucial
     }
 
     #[test]

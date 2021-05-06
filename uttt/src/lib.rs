@@ -485,7 +485,7 @@ pub mod ttt_trait_solving {
         pub x_to_move: bool,
     }
 
-    #[derive(Debug,Copy, Clone,Ord, PartialOrd, Eq, PartialEq, Hash)]
+    #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
     pub struct TTTBoard {
         pub xbb: u16,
         pub obb: u16
@@ -623,6 +623,10 @@ pub mod ttt_trait_solving {
     }
 
     impl TTTBoard {
+        const fn default() -> TTTBoard {
+            return TTTBoard{ xbb: 0, obb: 0 };
+        }
+        
         const fn get_win_state(&self) -> GameResult {
             // check for X or O win patterns, check for a filled board, or return unresolved
             let mut mask_index = 0;
@@ -650,7 +654,7 @@ pub mod ttt_trait_solving {
 
             let mut a_move_index= 0u8;
             let mut assignedMoves = 0;
-            while ((a_move_index as usize) < MOVE_ORDERING.len()) {
+            while (a_move_index as usize) < MOVE_ORDERING.len() {
                 match occupied_bb & (1u16 << a_move_index) {
                     0 => {
                         let newMove = GameMove { x_to_move: x_to_move, move_index: a_move_index };
@@ -667,17 +671,8 @@ pub mod ttt_trait_solving {
             return ordered_moves;
         }
 
-        pub fn make_move(&mut self, a_move: GameMove, _zobrist_constants: &TTTZobrist) -> TTTUnmove {
-            let unmove = TTTUnmove { x_to_move: a_move.x_to_move, move_index: a_move.move_index };
-            match a_move {
-                GameMove { x_to_move: true, move_index } => {
-                    self.xbb ^= 1u16 << move_index;
-                },
-                GameMove { x_to_move: false, move_index } => {
-                    self.obb ^= 1u16 << move_index;
-                },
-            }
-            unmove
+        pub const fn to_int(&self) -> usize {
+            return ((self.xbb as usize)<<9)|(self.obb as usize);
         }
 
         pub const fn make_move_const(&self, a_move: GameMove, _zobrist_constants: &TTTZobrist) -> (TTTUnmove, TTTBoard) {
@@ -694,42 +689,47 @@ pub mod ttt_trait_solving {
             (unmove, board_copy)
         }
 
-        pub fn make_boards() -> Vec<TTTBoard> {
-            let mut expandable_boards: VecDeque<_> = VecDeque::with_capacity(REACHABLE_BOARD_COUNT);
-            let mut board_index = 0usize;
-            let mut numbered_boards = Vec::with_capacity(REACHABLE_BOARD_COUNT);
-            let mut number_lookup = HashMap::with_capacity(REACHABLE_BOARD_COUNT*2);
+        pub const fn make_boards() -> [TTTBoard; REACHABLE_BOARD_COUNT] {
+            let mut visited_boards = [false;512*512];
+            let count = visited_boards.len();
+            let mut numbered_boards = [TTTBoard::default(); REACHABLE_BOARD_COUNT];
 
             let init_board = TTTBoard{xbb:0, obb:0};
-            expandable_boards.push_back(init_board);
+            let mut board_index_to_expand = 0usize;
+            let mut board_index_to_write = 0usize;
+            numbered_boards[board_index_to_expand] = init_board;
+            while board_index_to_expand < REACHABLE_BOARD_COUNT {
+                let board : TTTBoard = numbered_boards[board_index_to_expand];
 
-            while let Some(board) = expandable_boards.pop_front() {
-                let mut legal_x_moves = board.get_legal_moves_no_lookup(true);
-                let mut legal_o_moves = board.get_legal_moves_no_lookup(false);
-                let mut all_legal_moves = Vec::new();
-                for move_index in 0..legal_x_moves.move_count {
-                    all_legal_moves.push(legal_x_moves.moves[move_index as usize])
-                }
-                for move_index in 0..legal_o_moves.move_count {
-                    all_legal_moves.push(legal_o_moves.moves[move_index as usize]);
-                }
-                // all_legal_moves.append(&legal_x_moves.moves);
-                // all_legal_moves.append(&mut legal_o_moves);
-                // legal_x_moves.append(&mut legal_o_moves);
-                // let all_moves = legal_x_moves.iter().chain(legal_o_moves.iter());
-                if GameResult::Unresolved == board.get_win_state() {
-                    while let Some(each_move) = all_legal_moves.pop() {
-                        let mut new_board: TTTBoard = board.clone();
-                        new_board.make_move(each_move.clone(), &TTTZobrist{});
-                        if !number_lookup.contains_key(&new_board) {
-                            number_lookup.insert(new_board.clone(), board_index);
-                            numbered_boards.push(new_board.clone());
-                            expandable_boards.push_back(new_board.clone());
-                            board_index+=1;
+                if (board.get_win_state() as isize) == (GameResult::Unresolved as isize) {
+                    let mut move_index = 0;
+                    let mut legal_x_moves = board.get_legal_moves_no_lookup(true);
+                    while move_index<legal_x_moves.move_count {
+                        let a_move = legal_x_moves.moves[move_index as usize];
+                        let (_unmove, mut new_board) = board.make_move_const(a_move, &TTTZobrist {});
+                        let board_int = new_board.to_int();
+                        if !visited_boards[board_int] {
+                            visited_boards[board_int] = true;
+                            numbered_boards[board_index_to_write] = new_board;
+                            board_index_to_write +=1;
                         }
+                        move_index += 1;
                     }
-                    // for each_move in all_moves {}
+                    move_index = 0;
+                    let mut legal_o_moves = board.get_legal_moves_no_lookup(false);
+                    while move_index<legal_x_moves.move_count {
+                        let a_move = legal_o_moves.moves[move_index as usize];
+                        let (_unmove, mut new_board) = board.make_move_const(a_move, &TTTZobrist {});
+                        let board_int = new_board.to_int();
+                        if !visited_boards[board_int] {
+                            visited_boards[board_int] = true;
+                            numbered_boards[board_index_to_write] = new_board;
+                            board_index_to_write +=1;
+                        }
+                        move_index += 1;
+                    }
                 }
+                board_index_to_expand+=1
             }
             numbered_boards
         }

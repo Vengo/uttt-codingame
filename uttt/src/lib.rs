@@ -488,7 +488,16 @@ pub mod ttt_trait_solving {
     #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
     pub struct TTTBoard {
         pub xbb: u16,
-        pub obb: u16
+        pub obb: u16,
+    }
+    #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+    pub struct TTTBoardID {
+        pub board_id : u16,
+    }
+    impl TTTBoardID {
+        pub const fn default() -> TTTBoardID {
+            return TTTBoardID{board_id:0}
+        }
     }
 
     #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -693,6 +702,8 @@ pub mod ttt_trait_solving {
             let mut visited_boards = [false;512*512];
             let count = visited_boards.len();
             let mut numbered_boards = [TTTBoard::default(); REACHABLE_BOARD_COUNT];
+            let mut x_transitions = [[TTTBoardID::default(); 9] ;REACHABLE_BOARD_COUNT];
+            let mut o_transitions = [[TTTBoardID::default(); 9] ;REACHABLE_BOARD_COUNT];
 
             let init_board = TTTBoard{xbb:0, obb:0};
             let mut board_index_to_expand = 0usize;
@@ -705,9 +716,10 @@ pub mod ttt_trait_solving {
                     let mut move_index = 0;
                     let mut legal_x_moves = board.get_legal_moves_no_lookup(true);
                     while move_index<legal_x_moves.move_count {
-                        let a_move = legal_x_moves.moves[move_index as usize];
+                        let a_move : GameMove = legal_x_moves.moves[move_index as usize];
                         let (_unmove, mut new_board) = board.make_move_const(a_move, &TTTZobrist {});
                         let board_int = new_board.to_int();
+                        x_transitions[board_index_to_expand][a_move.move_index as usize] = TTTBoardID{board_id: board_int as u16};
                         if !visited_boards[board_int] {
                             visited_boards[board_int] = true;
                             numbered_boards[board_index_to_write] = new_board;
@@ -718,9 +730,10 @@ pub mod ttt_trait_solving {
                     move_index = 0;
                     let mut legal_o_moves = board.get_legal_moves_no_lookup(false);
                     while move_index<legal_x_moves.move_count {
-                        let a_move = legal_o_moves.moves[move_index as usize];
+                        let a_move : GameMove = legal_o_moves.moves[move_index as usize];
                         let (_unmove, mut new_board) = board.make_move_const(a_move, &TTTZobrist {});
                         let board_int = new_board.to_int();
+                        o_transitions[board_index_to_expand][a_move.move_index as usize] = TTTBoardID{board_id: board_int as u16};
                         if !visited_boards[board_int] {
                             visited_boards[board_int] = true;
                             numbered_boards[board_index_to_write] = new_board;

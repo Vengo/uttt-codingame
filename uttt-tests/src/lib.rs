@@ -667,6 +667,7 @@ mod tests_uttt {
             eprintln!("found {} positions at depth {} in {} ms", visited.len() + leaf_count, i, expt_start.elapsed().as_millis())
         }
         assert_eq!(4116682, visited.len()); // Value isn't crucial
+        // Depth 7 in ~953 ms prior to precomputed transitions
     }
 
     #[test]
@@ -958,7 +959,8 @@ mod tests_uttt {
         }
 
         let elapsed_time = expt_start.elapsed().as_micros();
-        eprintln!("elapsed time: {}", elapsed_time);
+        eprintln!("elapsed time: {}", elapsed_time); // 5456 microseconds to 1200 rollouts prior to
+        // precomputed transition migration
         assert_eq!(true, elapsed_time < 50000, "time was not less than 50k microseconds");
     }
 

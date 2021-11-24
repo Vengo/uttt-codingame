@@ -13,7 +13,7 @@ pub mod game_solving {
         move_index: u8,
     }
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Copy, Eq, PartialEq)]
     pub enum GameResult {
         P1Win,
         P2Win,
@@ -461,7 +461,12 @@ pub mod ttt_trait_solving {
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
-    const REACHABLE_BOARD_COUNT: usize = 18_752; // At most 3**9 boards should exist
+
+    const REACHABLE_BOARD_COUNT: usize = 18_752; // At most 3**9=19683 boards should exist
+    // pub const BOARD_OUTPUT : ([TTTBoard; REACHABLE_BOARD_COUNT], [[TTTBoardID;9]; REACHABLE_BOARD_COUNT], [[TTTBoardID;9]; REACHABLE_BOARD_COUNT]) = TTTBoard::make_boards();
+    // pub const X_WINS :
+
+    pub const BB_STATE_CHECK : [GameResult; 512] = TTTBoard::make_bb_lookup();
 
     #[derive(Clone, PartialOrd, Ord, PartialEq, Eq)]
     pub struct TTTTerminal {
@@ -519,6 +524,7 @@ pub mod ttt_trait_solving {
 
     pub struct TTTZobrist {
         //I'm not ACTUALLY implementing Zobrist constants for normal tictactoe...
+        // I have to create this to match the make_move API though, so here we are!
     }
 
     impl TTTState {
@@ -632,11 +638,27 @@ pub mod ttt_trait_solving {
     }
 
     impl TTTBoard {
+
         const fn default() -> TTTBoard {
             return TTTBoard{ xbb: 0, obb: 0 };
         }
-        
-        const fn get_win_state(&self) -> GameResult {
+
+        pub const fn get_win_state(&self) -> GameResult {
+            // Forgive the weird casting here, it's due to const fn. See:
+            //   https://stackoverflow.com/questions/60125657/rust-cant-use-enum-in-const-fn
+
+            if (BB_STATE_CHECK[self.xbb as usize] as isize) == (GameResult::P1Win as isize) {
+               GameResult::P1Win
+            } else if (BB_STATE_CHECK[self.obb as usize] as isize)== (GameResult::P1Win as isize) {
+               GameResult::P2Win
+            } else if (self.xbb|self.obb) == CAT {
+                GameResult::Tie
+            } else {
+                GameResult::Unresolved
+            }
+        }
+
+        pub const fn get_win_state_alternate(&self) -> GameResult {
             // check for X or O win patterns, check for a filled board, or return unresolved
             let mut mask_index = 0;
             while mask_index< RESULT_MASKS.len() {
@@ -698,9 +720,28 @@ pub mod ttt_trait_solving {
             (unmove, board_copy)
         }
 
-        pub const fn make_boards() -> [TTTBoard; REACHABLE_BOARD_COUNT] {
+        pub const fn make_bb_lookup() -> [GameResult; 512] {
+            let mut bb = 0u16;
+            let mut results = [GameResult::Unresolved;512];
+            while bb<512 {
+                let mut mask_index = 0;
+                while mask_index< RESULT_MASKS.len() {
+                    if bb&RESULT_MASKS[mask_index]==RESULT_MASKS[mask_index] {
+                        results[bb as usize] = GameResult::P1Win;
+                    }
+                    mask_index+=1;
+                }
+                bb+=1;
+            }
+
+            results
+        }
+
+        pub const fn make_boards() -> (
+            [TTTBoard; REACHABLE_BOARD_COUNT], [[TTTBoardID;9]; REACHABLE_BOARD_COUNT], [[TTTBoardID;9]; REACHABLE_BOARD_COUNT]
+        ) {
             let mut visited_boards = [false;512*512];
-            let count = visited_boards.len();
+
             let mut numbered_boards = [TTTBoard::default(); REACHABLE_BOARD_COUNT];
             let mut x_transitions = [[TTTBoardID::default(); 9] ;REACHABLE_BOARD_COUNT];
             let mut o_transitions = [[TTTBoardID::default(); 9] ;REACHABLE_BOARD_COUNT];
@@ -710,14 +751,15 @@ pub mod ttt_trait_solving {
             let mut board_index_to_write = 0usize;
             numbered_boards[board_index_to_expand] = init_board;
             while board_index_to_expand < REACHABLE_BOARD_COUNT {
+            // while board_index_to_expand < REACHABLE_BOARD_COUNT {
                 let board : TTTBoard = numbered_boards[board_index_to_expand];
 
                 if (board.get_win_state() as isize) == (GameResult::Unresolved as isize) {
                     let mut move_index = 0;
-                    let mut legal_x_moves = board.get_legal_moves_no_lookup(true);
+                    let legal_x_moves = board.get_legal_moves_no_lookup(true);
                     while move_index<legal_x_moves.move_count {
                         let a_move : GameMove = legal_x_moves.moves[move_index as usize];
-                        let (_unmove, mut new_board) = board.make_move_const(a_move, &TTTZobrist {});
+                        let (_unmove, new_board) = board.make_move_const(a_move, &TTTZobrist {});
                         let board_int = new_board.to_int();
                         x_transitions[board_index_to_expand][a_move.move_index as usize] = TTTBoardID{board_id: board_int as u16};
                         if !visited_boards[board_int] {
@@ -728,10 +770,10 @@ pub mod ttt_trait_solving {
                         move_index += 1;
                     }
                     move_index = 0;
-                    let mut legal_o_moves = board.get_legal_moves_no_lookup(false);
+                    let legal_o_moves = board.get_legal_moves_no_lookup(false);
                     while move_index<legal_x_moves.move_count {
                         let a_move : GameMove = legal_o_moves.moves[move_index as usize];
-                        let (_unmove, mut new_board) = board.make_move_const(a_move, &TTTZobrist {});
+                        let (_unmove, new_board) = board.make_move_const(a_move, &TTTZobrist {});
                         let board_int = new_board.to_int();
                         o_transitions[board_index_to_expand][a_move.move_index as usize] = TTTBoardID{board_id: board_int as u16};
                         if !visited_boards[board_int] {
@@ -744,7 +786,7 @@ pub mod ttt_trait_solving {
                 }
                 board_index_to_expand+=1
             }
-            numbered_boards
+            (numbered_boards, x_transitions, o_transitions)
         }
     }
 

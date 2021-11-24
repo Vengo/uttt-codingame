@@ -10,20 +10,17 @@ mod tests {
 mod tests_ttt {
     use std::collections::{HashMap, HashSet};
 
-    use uttt::ttt_trait_solving::{TTTState, TTTBoard, TTTZobrist};
+    use uttt::ttt_trait_solving::{TTTState, TTTBoard, TTTZobrist, BB_STATE_CHECK};
     use uttt::game_solving::{AlphaBetaTTCompatible, alpha_beta_search, GameMove, GameResult};
     use std::iter::FromIterator;
 
     #[test]
-    fn test_board_gen() {
-        let boards = TTTBoard::make_boards();
-
-        eprintln!("found {} boards", boards.len());
-        let boardSet: HashSet<TTTBoard> = HashSet::from_iter(boards.iter().cloned());
-        eprintln!("found {} unique boards", boardSet.len());
-        assert_eq!(boards.len(),boardSet.len(), "BoardSet and BoardVec have different count, but make_boards should generate unique states");
-        assert_eq!(boards.len(),18752, "found a number of boards other than 18_752");
-        assert_eq!(true, false, "just making the tests visible in my IDE");
+    fn test_make_bb() {
+        for bb in 0..512 {
+            let test_board = TTTBoard{xbb:bb, obb:0};
+            assert_eq!(test_board.get_win_state_alternate(),BB_STATE_CHECK[bb as usize]);
+            assert_eq!(test_board.get_win_state(),test_board.get_win_state_alternate());
+        }
     }
 
     #[test]

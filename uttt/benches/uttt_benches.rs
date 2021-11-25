@@ -4,12 +4,12 @@ extern crate criterion;
 use criterion::Criterion;
 use criterion::black_box;
 
-use uttt::game_solving::{AlphaBetaTTCompatible, GameMove, GameResult, alpha_beta_search};
-use uttt::uttt_trait_solving::{UTTTBoard};
+use uttt::game_solving::{AlphaBetaCompatible, GameMove, GameResult, alpha_beta_search};
+use uttt::uttt_trait_solving::{UltimateTicTacToeBoard};
 use std::collections::HashMap;
 
 fn uttt_display_test(c: &mut Criterion) {
-    let x = UTTTBoard {
+    let x = UltimateTicTacToeBoard {
         xbb: [0 ;9],
         obb: [0 ;9],
         last_super_index: 9,
@@ -25,7 +25,7 @@ fn uttt_display_test(c: &mut Criterion) {
 }
 
 fn uttt_movegen_empty(c: &mut Criterion) {
-    let x = UTTTBoard {
+    let x = UltimateTicTacToeBoard {
         xbb: [0 ;9],
         obb: [0 ;9],
         last_super_index: 9,
@@ -34,7 +34,7 @@ fn uttt_movegen_empty(c: &mut Criterion) {
         x_to_move: false,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     c.bench_function(
         "uttt movegen empty",
@@ -42,7 +42,7 @@ fn uttt_movegen_empty(c: &mut Criterion) {
 }
 
 fn uttt_movegen_full(c: &mut Criterion) {
-    let x = UTTTBoard {
+    let x = UltimateTicTacToeBoard {
         xbb: [0, 0, 4, 0, 0, 0, 0, 0, 0],
         obb: [0 ;9],
         last_super_index: 2,
@@ -51,7 +51,7 @@ fn uttt_movegen_full(c: &mut Criterion) {
         x_to_move: false,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     c.bench_function(
         "uttt movegen full board",
@@ -59,7 +59,7 @@ fn uttt_movegen_full(c: &mut Criterion) {
 }
 
 fn uttt_make_move(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 2, 0, 0, 0, 0, 0, 0],
         obb: [0 ;9],
         last_super_index: 9,
@@ -80,7 +80,7 @@ fn uttt_make_move(c: &mut Criterion) {
 }
 
 fn uttt_unmake_move(c: &mut Criterion) {
-    let mut uttt_board = UTTTBoard {
+    let mut uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 2, 0, 0, 0, 0, 0, 0],
         obb: [0 ;9],
         last_super_index: 9,
@@ -104,7 +104,7 @@ fn uttt_unmake_move(c: &mut Criterion) {
 }
 
 fn uttt_result_check(c: &mut Criterion) {
-    let mut uttt_board = UTTTBoard {
+    let mut uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 2, 0, 0, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 9,
@@ -122,7 +122,7 @@ fn uttt_result_check(c: &mut Criterion) {
 }
 
 fn uttt_playout(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 9,
@@ -131,7 +131,7 @@ fn uttt_playout(c: &mut Criterion) {
         x_to_move: true,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     c.bench_function(
         "uttt playout",
@@ -152,7 +152,7 @@ fn uttt_playout(c: &mut Criterion) {
 }
 
 fn uttt_playout_turn_2(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 16, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 4,
@@ -161,7 +161,7 @@ fn uttt_playout_turn_2(c: &mut Criterion) {
         x_to_move: false,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     c.bench_function(
         "uttt playout from turn 2",
@@ -182,7 +182,7 @@ fn uttt_playout_turn_2(c: &mut Criterion) {
 }
 
 fn uttt_playout_alpha_beta(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 4, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 4,
@@ -191,7 +191,7 @@ fn uttt_playout_alpha_beta(c: &mut Criterion) {
         x_to_move: false,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     const COMPETITIVE_AB_DEPTH: u8 = 2;
 
@@ -214,7 +214,7 @@ fn uttt_playout_alpha_beta(c: &mut Criterion) {
 }
 
 fn uttt_alpha_beta_zero_window(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 4, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 4,
@@ -223,7 +223,7 @@ fn uttt_alpha_beta_zero_window(c: &mut Criterion) {
         x_to_move: false,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
     let mut transposition_table = HashMap::new();
 
     const COMPETITIVE_AB_DEPTH: u8 = 12;
@@ -243,7 +243,7 @@ fn uttt_alpha_beta_zero_window(c: &mut Criterion) {
 }
 
 fn mcts_bench(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0u16,0u16,0u16,4u16,0u16,0u16,0u16,0u16,0u16],
         obb: [0u16;9],
         last_super_index: 4,
@@ -254,7 +254,7 @@ fn mcts_bench(c: &mut Criterion) {
     let board_string = uttt_board.display();
     let mut move_count = 0;
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     c.bench_function(
         "mcts search benchmarking",
@@ -268,7 +268,7 @@ fn mcts_bench(c: &mut Criterion) {
 
 
 fn uttt_playout_alpha_beta_depths(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 9,
@@ -277,7 +277,7 @@ fn uttt_playout_alpha_beta_depths(c: &mut Criterion) {
         x_to_move: true,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     const COMPETITIVE_AB_DEPTH: u8 = 4;
 
@@ -304,7 +304,7 @@ fn uttt_playout_alpha_beta_depths(c: &mut Criterion) {
 }
 
 fn uttt_get_tied_mask(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 9,
@@ -322,7 +322,7 @@ fn uttt_get_tied_mask(c: &mut Criterion) {
 }
 
 fn uttt_get_subboard_moves(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 9,
@@ -331,7 +331,7 @@ fn uttt_get_subboard_moves(c: &mut Criterion) {
         x_to_move: true,
     };
 
-    let legal_moves = UTTTBoard::get_move_orderings();
+    let legal_moves = UltimateTicTacToeBoard::get_move_orderings();
 
     c.bench_function(
         "uttt get subboard moves",
@@ -342,7 +342,7 @@ fn uttt_get_subboard_moves(c: &mut Criterion) {
 }
 
 fn uttt_hash_test(c: &mut Criterion) {
-    let uttt_board = UTTTBoard {
+    let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 4, 0, 0, 0, 0],
         obb: [0, 0, 0, 0, 0, 0, 0, 0, 0],
         last_super_index: 4,

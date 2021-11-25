@@ -6,11 +6,11 @@ use criterion::black_box;
 
 //use utt::game_solving;
 
-use uttt::game_solving::AlphaBetaTTCompatible;
-use uttt::ttt_trait_solving::TTTBoard;
+use uttt::game_solving::AlphaBetaCompatible;
+use uttt::ttt_trait_solving::TicTacToeBoard;
 
 fn ttt_display_test(c: &mut Criterion) {
-    let x = TTTBoard {
+    let x = TicTacToeBoard {
         xbb: 1 << 8,
         obb: 0 << 8,
         x_to_move: false,
@@ -22,7 +22,7 @@ fn ttt_display_test(c: &mut Criterion) {
 }
 
 fn ttt_movegen_empty(c: &mut Criterion) {
-    let x = TTTBoard {
+    let x = TicTacToeBoard {
         xbb: 0 << 8,
         obb: 0 << 8,
         x_to_move: true,
@@ -35,7 +35,7 @@ fn ttt_movegen_empty(c: &mut Criterion) {
 }
 
 fn ttt_movegen_full(c: &mut Criterion) {
-    let x = TTTBoard {
+    let x = TicTacToeBoard {
         xbb: 73 << 1,
         obb: 40,
         x_to_move: true,

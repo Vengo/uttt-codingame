@@ -1,9 +1,9 @@
 
 fn main() {
     // game loop
-    use std::io::stdin;
-    use uttt::uttt_trait_solving::{UTTTBoard};
-    use uttt::game_solving::{AlphaBetaTTCompatible, UMCTSNode, GameResult, advance_rollout,
+    // use std::io::stdin;
+    use uttt::uttt_trait_solving::{UltimateTicTacToeBoard};
+    use uttt::game_solving::{AlphaBetaCompatible, UmctsNode, GameResult, advance_rollout,
                              reverse_rollout, IdentityHasherBuilder
     };
     
@@ -11,13 +11,13 @@ fn main() {
     use std::collections::HashMap;
 
     let mut turn_count = 0;
-    let zobrist_constants = UTTTBoard::get_zobrist_constants();
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
-    let mut uttt_board = UTTTBoard::default();
+    let mut uttt_board = UltimateTicTacToeBoard::default();
 
     let mut unmove_queue = Vec::with_capacity(81);
-    let mut node_store: HashMap<u64, UMCTSNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder{});
-    let mut legal_moves = UTTTBoard::get_move_ordering_array();
+    let mut node_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder{});
+    let mut legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
 
     loop {
         // ***************************************************************
@@ -26,7 +26,7 @@ fn main() {
         // **************************************************************
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0  {
-            legal_moves = UTTTBoard::get_move_ordering_array();
+            legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
             998_000
         } else if turn_count == 1 {
             998_000
@@ -40,8 +40,8 @@ fn main() {
 
 
         while turn_start.elapsed().as_micros() < time_limit {
-            let mut search_alpha = std::i8::MIN;
-            let mut search_beta = std::i8::MAX;
+            let mut search_alpha = i8::MIN;
+            let mut search_beta = i8::MAX;
 //            let mut rollout_result = 0;
 
             while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
@@ -62,13 +62,13 @@ fn main() {
 
             let rollout_result = match uttt_board.get_win_state() {
                     GameResult::P1Win => {
-                        let rollout_result = std::i8::MAX;
+                        let rollout_result = i8::MAX;
                         terminal_node.value_lower = rollout_result;
                         terminal_node.value_upper = rollout_result;
                         rollout_result
                     },
                     GameResult::P2Win => {
-                        let rollout_result = std::i8::MIN;
+                        let rollout_result = i8::MIN;
                         terminal_node.value_lower = rollout_result;
                         terminal_node.value_upper = rollout_result;
                         rollout_result
@@ -145,7 +145,7 @@ fn main() {
         uttt_board.make_move(*best_move, &zobrist_constants);
 
         turn_count +=1;
-        eprintln!("board after move:\n{}", uttt_board.display());
+        eprintln!("board after move {:?}:\n{}", *best_move, uttt_board.display());
         eprintln!("elapsed microseconds: {}",turn_start.elapsed().as_micros());
         eprintln!("rollout stats.\nmoves\trollouts\n{}\t{}", move_count, rollout_count);
         eprintln!("board representation post-move:\n{:?}", uttt_board);

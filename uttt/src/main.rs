@@ -1,3 +1,5 @@
+use rand::{rngs, SeedableRng, Rng};
+use rand::distributions::Standard;
 
 fn main() {
     // game loop
@@ -18,6 +20,17 @@ fn main() {
     let mut unmove_queue = Vec::with_capacity(81);
     let mut node_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> = HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder{});
     let mut legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
+
+    let rand_generation = time::Instant::now();
+    let random_indices = {
+        let mut seeded = rngs::StdRng::seed_from_u64(0);
+        let mut temporary_buffer :Vec<u16> = seeded.sample_iter(&Standard).take(15_000_000).collect();
+        // seeded.fill(&mut temporary_buffer);
+
+        temporary_buffer
+    };
+    println!("generated values in {} microseconds",rand_generation.elapsed().as_micros());
+
 
     loop {
         // ***************************************************************

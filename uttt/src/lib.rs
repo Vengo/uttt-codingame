@@ -1,3 +1,5 @@
+use rand::distributions::Standard;
+
 //TODO: Generally increase code quality by reducing the number of clippy lints and compiler warnings
 pub mod game_solving {
     use std::collections::HashMap;
@@ -1263,6 +1265,9 @@ pub fn main() {
     use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult, advance_rollout,
                               reverse_rollout, uct_value, IdentityHasherBuilder
     };
+    use rand::{rngs, SeedableRng, Rng};
+    use rand::distributions::{Uniform,Standard};
+
     use std::time;
     use std::collections::HashMap;
 
@@ -1283,26 +1288,22 @@ pub fn main() {
     let mut node_store= HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder{});
     let mut legal_moves = Vec::new();
 
+    let rand_generation = time::Instant::now();
+    let random_indices = {
+        let mut seeded = rngs::StdRng::seed_from_u64(0);
+        let mut temporary_buffer :Vec<u16> = seeded.sample_iter(&Standard).take(16).collect();
+        // seeded.fill(&mut temporary_buffer);2
+
+        temporary_buffer
+    };
+    println!("generated values in {} microseconds",rand_generation.elapsed().as_micros());
+
     loop {
         // **************************************************************
         // begin supplied boiler plate
         // reads game input, and parses the result
-        let mut input_line = String::new();
-        std::io::stdin().read_line(&mut input_line).unwrap();
+        let (opponent_row, opponent_col) = parse_codingame_inputs();
 
-        let inputs = input_line.split(' ').collect::<Vec<_>>();
-        let opponent_row = parse_input!(inputs[0], i32);
-        let opponent_col = parse_input!(inputs[1], i32);
-        let mut input_line = String::new();
-        std::io::stdin().read_line(&mut input_line).unwrap();
-        let valid_action_count = parse_input!(input_line, i32);
-        for _i in 0..valid_action_count as usize {
-            let mut input_line = String::new();
-            std::io::stdin().read_line(&mut input_line).unwrap();
-            let inputs = input_line.split(' ').collect::<Vec<_>>();
-            let _row = parse_input!(inputs[0], i32);
-            let _col = parse_input!(inputs[1], i32);
-        }
         // end supplied boiler plate
         // ***************************************************************
         // setting start of turn timer
@@ -1510,4 +1511,24 @@ pub fn main() {
         eprintln!("table size: {}", node_store.len());
         println!("{} {}",final_row, final_column);
     }
+}
+
+fn parse_codingame_inputs() -> (i32, i32) {
+    let mut input_line = String::new();
+    std::io::stdin().read_line(&mut input_line).unwrap();
+
+    let inputs = input_line.split(' ').collect::<Vec<_>>();
+    let opponent_row = parse_input!(inputs[0], i32);
+    let opponent_col = parse_input!(inputs[1], i32);
+    let mut input_line = String::new();
+    std::io::stdin().read_line(&mut input_line).unwrap();
+    let valid_action_count = parse_input!(input_line, i32);
+    for _i in 0..valid_action_count as usize {
+        let mut input_line = String::new();
+        std::io::stdin().read_line(&mut input_line).unwrap();
+        let inputs = input_line.split(' ').collect::<Vec<_>>();
+        let _row = parse_input!(inputs[0], i32);
+        let _col = parse_input!(inputs[1], i32);
+    }
+    (opponent_row, opponent_col)
 }

@@ -459,6 +459,7 @@ pub mod game_solving {
 pub mod ttt_trait_solving {
     use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult, OrderedFloat};
     use itertools::Itertools;
+    use std::collections::{HashSet, HashMap};
 
     // tictactoe constants
     const TTT_BOARD_WIDTH: usize = 3;
@@ -470,6 +471,7 @@ pub mod ttt_trait_solving {
     // 18_752 is the number of tic tac toe boards reachable from the initial position without
     //  requiring that players alternate moves (so x might move twice, then O 3 times.
 
+    #[derive(Debug)]
     pub struct TicTacToeEngine {
         /// On approaching this project again, it feels like it would be useful to have some sort of
         /// an object to store state related to game search, especially when it comes to handling
@@ -478,9 +480,70 @@ pub mod ttt_trait_solving {
         /// maybe other little bits of state.
         ///
 
-        board_ids : [u16; REACHABLE_BOARD_COUNT],
         boards : [TicTacToeBoard; REACHABLE_BOARD_COUNT],
-        board_transitions : [[u16;9]; REACHABLE_BOARD_COUNT],
+        board_to_index : HashMap<TicTacToeBoard,u16>,
+        board_transitions_x_to_move : [[TicTacToeBoardId;9]; REACHABLE_BOARD_COUNT],
+        board_transitions_o_to_move : [[TicTacToeBoardId;9]; REACHABLE_BOARD_COUNT],
+    }
+
+    impl Default for TicTacToeEngine {
+        fn default() -> Self {
+            TicTacToeEngine::new()
+        }
+    }
+
+    impl TicTacToeEngine {
+        pub fn get_board(&self, board_id: &TicTacToeBoardId) -> &TicTacToeBoard {
+            self.boards.get(board_id.board_id as usize).unwrap()
+        }
+
+        pub fn new() -> Self {
+            // Might be better to use the builder pattern, but I'm going to do it this way!
+            // let mut visited_boards = [false;512*512];
+            // let mut visited_boards = HashSet::with_capacity(2*REACHABLE_BOARD_COUNT);
+            let mut board_to_index = HashMap::with_capacity(2*REACHABLE_BOARD_COUNT);
+            // 2*REACHABLE_BOARD_COUNT might stop a resize or two, but seems like a good bet.
+
+            let mut numbered_boards = [TicTacToeBoard::default(); REACHABLE_BOARD_COUNT];
+            let mut x_transitions = [[TicTacToeBoardId::default(); 9] ;REACHABLE_BOARD_COUNT];
+            let mut o_transitions = [[TicTacToeBoardId::default(); 9] ;REACHABLE_BOARD_COUNT];
+
+            let init_board = TicTacToeBoard {xbb:0, obb:0};
+            let mut board_index_to_expand = 0usize;
+            let mut board_index_to_write = 0usize;
+            numbered_boards[board_index_to_expand] = init_board;
+            for board_index_to_expand in 0..REACHABLE_BOARD_COUNT {
+                // assert_eq!(1,0);
+                let board : TicTacToeBoard = numbered_boards[board_index_to_expand];
+
+                if board.get_win_state() == GameResult::Unresolved {
+                    for x_to_move in &[true,false] {
+                        let legal_moves = board.get_legal_moves_no_lookup(*x_to_move);
+                        for move_index in 0..legal_moves.move_count {
+                            let a_move : GameMove = legal_moves.moves[move_index as usize];
+                            let (_unmove, new_board) = board.make_move_const(a_move, &TicTacToeZobrist {});
+                            let board_int = new_board.to_int();
+                            x_transitions[board_index_to_expand][a_move.move_index as usize] = TicTacToeBoardId {board_id: board_int as u16};
+                            let board_index = board_to_index.entry(
+                                new_board
+                            ).or_insert_with(|| {
+                                let old_index = board_index_to_write;
+                                numbered_boards[board_index_to_write] = new_board;
+                                board_index_to_write +=1;
+                                old_index as u16
+                            });
+                        }
+                    }
+                }
+            }
+
+            TicTacToeEngine{
+                boards: numbered_boards,
+                board_to_index,
+                board_transitions_x_to_move: x_transitions,
+                board_transitions_o_to_move: o_transitions
+            }
+        }
     }
 
     pub const BB_STATE_CHECK : [GameResult; 512] = TicTacToeBoard::make_bb_lookup();
@@ -751,57 +814,7 @@ pub mod ttt_trait_solving {
             results
         }
 
-        pub const fn make_boards() -> (
-            [TicTacToeBoard; REACHABLE_BOARD_COUNT], [[TicTacToeBoardId;9]; REACHABLE_BOARD_COUNT], [[TicTacToeBoardId;9]; REACHABLE_BOARD_COUNT]
-        ) {
-            let mut visited_boards = [false;512*512];
 
-            let mut numbered_boards = [TicTacToeBoard::default(); REACHABLE_BOARD_COUNT];
-            let mut x_transitions = [[TicTacToeBoardId::default(); 9] ;REACHABLE_BOARD_COUNT];
-            let mut o_transitions = [[TicTacToeBoardId::default(); 9] ;REACHABLE_BOARD_COUNT];
-
-            let init_board = TicTacToeBoard {xbb:0, obb:0};
-            let mut board_index_to_expand = 0usize;
-            let mut board_index_to_write = 0usize;
-            numbered_boards[board_index_to_expand] = init_board;
-            while board_index_to_expand < REACHABLE_BOARD_COUNT {
-            // while board_index_to_expand < REACHABLE_BOARD_COUNT {
-                let board : TicTacToeBoard = numbered_boards[board_index_to_expand];
-
-                if (board.get_win_state() as isize) == (GameResult::Unresolved as isize) {
-                    let mut move_index = 0;
-                    let legal_x_moves = board.get_legal_moves_no_lookup(true);
-                    while move_index<legal_x_moves.move_count {
-                        let a_move : GameMove = legal_x_moves.moves[move_index as usize];
-                        let (_unmove, new_board) = board.make_move_const(a_move, &TicTacToeZobrist {});
-                        let board_int = new_board.to_int();
-                        x_transitions[board_index_to_expand][a_move.move_index as usize] = TicTacToeBoardId {board_id: board_int as u16};
-                        if !visited_boards[board_int] {
-                            visited_boards[board_int] = true;
-                            numbered_boards[board_index_to_write] = new_board;
-                            board_index_to_write +=1;
-                        }
-                        move_index += 1;
-                    }
-                    move_index = 0;
-                    let legal_o_moves = board.get_legal_moves_no_lookup(false);
-                    while move_index<legal_x_moves.move_count {
-                        let a_move : GameMove = legal_o_moves.moves[move_index as usize];
-                        let (_unmove, new_board) = board.make_move_const(a_move, &TicTacToeZobrist {});
-                        let board_int = new_board.to_int();
-                        o_transitions[board_index_to_expand][a_move.move_index as usize] = TicTacToeBoardId {board_id: board_int as u16};
-                        if !visited_boards[board_int] {
-                            visited_boards[board_int] = true;
-                            numbered_boards[board_index_to_write] = new_board;
-                            board_index_to_write +=1;
-                        }
-                        move_index += 1;
-                    }
-                }
-                board_index_to_expand+=1
-            }
-            (numbered_boards, x_transitions, o_transitions)
-        }
     }
 
     impl AlphaBetaCompatible<u32, TicTacToeUnmove, TicTacToeZobrist> for TicTacToeState {

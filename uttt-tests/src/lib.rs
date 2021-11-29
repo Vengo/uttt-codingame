@@ -10,8 +10,18 @@ mod tests {
 mod tests_ttt {
     use std::collections::{HashMap, HashSet};
 
-    use uttt::ttt_trait_solving::{TicTacToeState, TicTacToeBoard, TicTacToeZobrist, BB_STATE_CHECK};
+    use uttt::ttt_trait_solving::{TicTacToeState, TicTacToeBoard, TicTacToeZobrist, BB_STATE_CHECK,
+                                  TicTacToeEngine, TicTacToeBoardId };
     use uttt::game_solving::{AlphaBetaCompatible, alpha_beta_search, GameMove, GameResult};
+
+    #[test]
+    fn test_make_engine() {
+        let engine = TicTacToeEngine::default();
+
+        let an_id = TicTacToeBoardId{board_id: 12};
+        eprintln!("{:?}",engine.get_board(&an_id));
+
+    }
 
     #[test]
     fn test_make_bb() {

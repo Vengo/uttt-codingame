@@ -1,6 +1,3 @@
-use rand::distributions::Standard;
-
-//TODO: Generally increase code quality by reducing the number of clippy lints and compiler warnings
 pub mod game_solving {
     use std::collections::HashMap;
     use std::hash::{Hash, BuildHasher, Hasher};
@@ -472,6 +469,19 @@ pub mod ttt_trait_solving {
     const REACHABLE_BOARD_COUNT: usize = 18_752; // At most 3**9=19683 boards should exist
     // 18_752 is the number of tic tac toe boards reachable from the initial position without
     //  requiring that players alternate moves (so x might move twice, then O 3 times.
+
+    pub struct TicTacToeEngine {
+        /// On approaching this project again, it feels like it would be useful to have some sort of
+        /// an object to store state related to game search, especially when it comes to handling
+        /// stuff like converting to and from IDs, storing computed search results (which will be
+        /// more relevant for ultimate tic tac toe since it's actually mildly complicated), and
+        /// maybe other little bits of state.
+        ///
+
+        board_ids : [u16; REACHABLE_BOARD_COUNT],
+        boards : [TicTacToeBoard; REACHABLE_BOARD_COUNT],
+        board_transitions : [[u16;9]; REACHABLE_BOARD_COUNT],
+    }
 
     pub const BB_STATE_CHECK : [GameResult; 512] = TicTacToeBoard::make_bb_lookup();
 

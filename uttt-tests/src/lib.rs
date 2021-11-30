@@ -1,34 +1,33 @@
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
-
-#[cfg(test)]
 mod tests_ttt {
     use std::collections::{HashMap, HashSet};
 
-    use uttt::ttt_trait_solving::{TicTacToeState, TicTacToeBoard, TicTacToeZobrist, BB_STATE_CHECK,
-                                  TicTacToeEngine, TicTacToeBoardId };
-    use uttt::game_solving::{AlphaBetaCompatible, alpha_beta_search, GameMove, GameResult};
+    use uttt::game_solving::{alpha_beta_search, AlphaBetaCompatible, GameMove, GameResult};
+    use uttt::ttt_trait_solving::{
+        TicTacToeBoard, TicTacToeBoardId, TicTacToeEngine, TicTacToeState, TicTacToeZobrist,
+        BB_STATE_CHECK,
+    };
 
     #[test]
     fn test_make_engine() {
         let engine = TicTacToeEngine::default();
 
-        let an_id = TicTacToeBoardId{board_id: 12};
-        eprintln!("{:?}",engine.get_board(&an_id));
-
+        let an_id = TicTacToeBoardId { board_id: 12 };
+        eprintln!("{:?}", engine.get_board(&an_id));
     }
 
     #[test]
     fn test_make_bb() {
         for bb in 0..512 {
-            let test_board = TicTacToeBoard {xbb:bb, obb:0};
-            assert_eq!(test_board.get_win_state_alternate(),BB_STATE_CHECK[bb as usize]);
-            assert_eq!(test_board.get_win_state(),test_board.get_win_state_alternate());
+            let test_board = TicTacToeBoard { xbb: bb, obb: 0 };
+            assert_eq!(
+                test_board.get_win_state_alternate(),
+                BB_STATE_CHECK[bb as usize]
+            );
+            assert_eq!(
+                test_board.get_win_state(),
+                test_board.get_win_state_alternate()
+            );
         }
     }
 
@@ -36,19 +35,31 @@ mod tests_ttt {
     fn test_move_ordering_array() {
         let array = TicTacToeState::get_move_ordering_array();
 
-        let board = TicTacToeState { x_to_move: true, xbb: 2, obb: 1 };
+        let board = TicTacToeState {
+            x_to_move: true,
+            xbb: 2,
+            obb: 1,
+        };
         println!("board is:\n{}", board.display());
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
 
-        let board = TicTacToeState { x_to_move: true, xbb: 128, obb: 256 };
+        let board = TicTacToeState {
+            x_to_move: true,
+            xbb: 128,
+            obb: 256,
+        };
         println!("board is:\n{}", board.display());
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
 
-        let board = TicTacToeState { x_to_move: true, xbb: 128 + 16, obb: 256 };
+        let board = TicTacToeState {
+            x_to_move: true,
+            xbb: 128 + 16,
+            obb: 256,
+        };
         println!("board is:\n{}", board.display());
 
         let legal = board.get_legal_moves(&array);
@@ -80,7 +91,6 @@ mod tests_ttt {
         assert_eq!(board_string, "..O\n...\n..X");
     }
 
-
     #[test]
     fn make_and_unmake_move_test_1() {
         let mut x = TicTacToeState {
@@ -94,9 +104,11 @@ mod tests_ttt {
         assert_eq!(board_string, "...\n...\n...");
         assert_eq!(x.x_to_move, true);
 
-
         //testing an x move
-        let ttt_move = GameMove { move_index: 0, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 0,
+            x_to_move: true,
+        };
         let unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "X..\n...\n...");
@@ -109,14 +121,20 @@ mod tests_ttt {
         assert_eq!(x.x_to_move, true);
 
         //readding an x move
-        let ttt_move = GameMove { move_index: 4, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 4,
+            x_to_move: true,
+        };
         x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "...\n.X.\n...");
         assert_eq!(x.x_to_move, false);
 
         //testing an o move
-        let ttt_move = GameMove { move_index: 1, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 1,
+            x_to_move: false,
+        };
         let unmake = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, ".O.\n.X.\n...");
@@ -129,31 +147,43 @@ mod tests_ttt {
         assert_eq!(x.x_to_move, false);
 
         //testing an o move
-        let ttt_move = GameMove { move_index: 0, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 0,
+            x_to_move: false,
+        };
         x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "O..\n.X.\n...");
         assert_eq!(x.x_to_move, true);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 1, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 1,
+            x_to_move: true,
+        };
         x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "OX.\n.X.\n...");
         assert_eq!(x.x_to_move, false);
 
         //testing an o move
-        let ttt_move = GameMove { move_index: 2, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 2,
+            x_to_move: false,
+        };
         x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "OXO\n.X.\n...");
         assert_eq!(x.x_to_move, true);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 7, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 7,
+            x_to_move: true,
+        };
         x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            RESULT_MASKS.iter().for_each(|mask| println! {"mask:\t{}\nbitw:\t{}\nxbb:\t{}\n", mask, x.xbb & mask, x.xbb});
+        //            RESULT_MASKS.iter().for_each(|mask| println! {"mask:\t{}\nbitw:\t{}\nxbb:\t{}\n", mask, x.xbb & mask, x.xbb});
 
         assert_eq!(board_string, "OXO\n.X.\n.X.");
         assert_eq!(x.x_to_move, false);
@@ -162,70 +192,134 @@ mod tests_ttt {
 
     #[test]
     fn x_win_tests() {
-        let test_board = TicTacToeState { xbb: 7, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 7,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "XXX\n...\n...");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 7 << 3, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 7 << 3,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "...\nXXX\n...");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 7 << 6, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 7 << 6,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "...\n...\nXXX");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 73, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 73,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "X..\nX..\nX..");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 73 << 1, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 73 << 1,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), ".X.\n.X.\n.X.");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 73 << 2, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 73 << 2,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "..X\n..X\n..X");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 273, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 273,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "X..\n.X.\n..X");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
 
-        let test_board = TicTacToeState { xbb: 84, obb: 0, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 84,
+            obb: 0,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "..X\n.X.\nX..");
         assert_eq!(test_board.get_win_state(), GameResult::P1Win);
     }
 
     #[test]
     fn o_win_tests() {
-        let test_board = TicTacToeState { xbb: 0, obb: 7, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 7,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "OOO\n...\n...");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 7 << 3, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 7 << 3,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "...\nOOO\n...");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 7 << 6, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 7 << 6,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "...\n...\nOOO");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 73, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 73,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "O..\nO..\nO..");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 73 << 1, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 73 << 1,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), ".O.\n.O.\n.O.");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 73 << 2, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 73 << 2,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "..O\n..O\n..O");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 273, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 273,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "O..\n.O.\n..O");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
 
-        let test_board = TicTacToeState { xbb: 0, obb: 84, x_to_move: true };
+        let test_board = TicTacToeState {
+            xbb: 0,
+            obb: 84,
+            x_to_move: true,
+        };
         assert_eq!(test_board.display(), "..O\n.O.\nO..");
         assert_eq!(test_board.get_win_state(), GameResult::P2Win);
     }
@@ -244,7 +338,7 @@ mod tests_ttt {
         while x.get_legal_moves(&legal_moves).len() > 0 {
             let moves = x.get_legal_moves(&legal_moves);
             x.make_move(moves[0], &zobrist_constants);
-//                eprintln!("{}", x.display());
+            //                eprintln!("{}", x.display());
             assert_eq!(true, x.is_valid());
         }
     }
@@ -263,23 +357,37 @@ mod tests_ttt {
 
         let mut ttable = HashMap::new();
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut ttt_board,
+            10,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
-
-//        let table_entry = ttable.entry(129);
-        while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
+        //        let table_entry = ttable.entry(129);
+        while (ttt_board.get_legal_moves(&legal_moves).len() > 0)
+            & (ttt_board.get_win_state() == GameResult::Unresolved)
+        {
             let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves, &zobrist_constants,
+                &mut ttt_board,
+                10,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants,
             );
-            let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
-//                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
-//                assert_eq!(true, ttt_board.is_valid());
+            let a_move = GameMove {
+                move_index,
+                x_to_move: ttt_board.x_to_move,
+            };
+            //                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
+            //                assert_eq!(true, ttt_board.is_valid());
 
             ttt_board.make_move(a_move, &zobrist_constants);
-//                eprintln!("{}", ttt_board.display());
+            //                eprintln!("{}", ttt_board.display());
         }
         assert_eq!(-128, board_val);
 
@@ -298,29 +406,43 @@ mod tests_ttt {
         let legal_moves = Vec::new();
         let zobrist_constants = TicTacToeZobrist {};
 
-
         let mut ttable = HashMap::new();
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut ttt_board,
+            10,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
-//        let table_entry = ttable.entry(129);
-        while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
-//                eprintln!("\n====================\n");
+        //        let table_entry = ttable.entry(129);
+        while (ttt_board.get_legal_moves(&legal_moves).len() > 0)
+            & (ttt_board.get_win_state() == GameResult::Unresolved)
+        {
+            //                eprintln!("\n====================\n");
             let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves, &zobrist_constants,
+                &mut ttt_board,
+                10,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants,
             );
-            let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
-//                eprintln!("board:\n{}\nnext move:{:?}\nevaluation {}", ttt_board.display(), a_move, board_val);
+            let a_move = GameMove {
+                move_index,
+                x_to_move: ttt_board.x_to_move,
+            };
+            //                eprintln!("board:\n{}\nnext move:{:?}\nevaluation {}", ttt_board.display(), a_move, board_val);
             assert_eq!(true, ttt_board.is_valid());
 
             ttt_board.make_move(a_move, &zobrist_constants);
-//                eprintln!("{}", ttt_board.display());
+            //                eprintln!("{}", ttt_board.display());
             assert_eq!(127, board_val);
         }
-//            eprintln!("game complete:\n{}", ttt_board.display());
+        //            eprintln!("game complete:\n{}", ttt_board.display());
         assert_eq!(127, board_val);
 
         assert_eq!(ttt_board.display(), "X.O\nOX.\n..X");
@@ -340,19 +462,34 @@ mod tests_ttt {
 
         let mut ttable = HashMap::new();
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut ttt_board,
+            10,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
         let legal_moves = Vec::new();
 
-//        let table_entry = ttable.entry(129);
-        while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
+        //        let table_entry = ttable.entry(129);
+        while (ttt_board.get_legal_moves(&legal_moves).len() > 0)
+            & (ttt_board.get_win_state() == GameResult::Unresolved)
+        {
             let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves, &zobrist_constants,
+                &mut ttt_board,
+                10,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants,
             );
-            let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
+            let a_move = GameMove {
+                move_index,
+                x_to_move: ttt_board.x_to_move,
+            };
             assert_eq!(true, ttt_board.is_valid());
 
             ttt_board.make_move(a_move, &zobrist_constants);
@@ -378,28 +515,42 @@ mod tests_ttt {
 
         let mut ttable = HashMap::new();
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut ttt_board,
+            10,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
-        while (ttt_board.get_legal_moves(&legal_moves).len() > 0) & (ttt_board.get_win_state() == GameResult::Unresolved) {
+        while (ttt_board.get_legal_moves(&legal_moves).len() > 0)
+            & (ttt_board.get_win_state() == GameResult::Unresolved)
+        {
             let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves, &zobrist_constants,
+                &mut ttt_board,
+                10,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants,
             );
-            let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
-//                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
+            let a_move = GameMove {
+                move_index,
+                x_to_move: ttt_board.x_to_move,
+            };
+            //                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
             assert_eq!(true, ttt_board.is_valid());
 
             ttt_board.make_move(a_move, &zobrist_constants);
-//                eprintln!("{}", ttt_board.display());
+            //                eprintln!("{}", ttt_board.display());
             assert_eq!(0, board_val);
         }
         assert_eq!(0, board_val);
 
         assert_eq!(ttt_board.display(), "XOO\nOXX\nXXO");
     }
-
 
     #[test]
     fn alpha_beta_hash_test_2() {
@@ -415,16 +566,30 @@ mod tests_ttt {
         assert_eq!(
             (0, 0, 4, true),
             alpha_beta_search(
-                &mut ttt_board, 10, std::i8::MIN,
-                std::i8::MAX, &mut ttable, &legal_moves, &zobrist_constants)
+                &mut ttt_board,
+                10,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants
+            )
         );
 
         while ttt_board.get_legal_moves(&legal_moves).len() > 0 {
             let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                &mut ttt_board, 10, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves, &zobrist_constants,
+                &mut ttt_board,
+                10,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants,
             );
-            let a_move = GameMove { move_index, x_to_move: ttt_board.x_to_move };
+            let a_move = GameMove {
+                move_index,
+                x_to_move: ttt_board.x_to_move,
+            };
             assert_eq!(true, ttt_board.is_valid());
             ttt_board.make_move(a_move, &zobrist_constants);
         }
@@ -451,13 +616,23 @@ mod tests_ttt {
                     if init_board.is_valid() {
                         valid_count += 1;
 
-                        while (init_board.get_legal_moves(&legal_moves).len() > 0) &&
-                            (init_board.get_win_state() == GameResult::Unresolved) {
-                            let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                                &mut init_board, 10, std::i8::MIN, std::i8::MAX,
-                                &mut ttable, &legal_moves, &zobrist_constants,
-                            );
-                            let a_move = GameMove { move_index, x_to_move: init_board.x_to_move };
+                        while (init_board.get_legal_moves(&legal_moves).len() > 0)
+                            && (init_board.get_win_state() == GameResult::Unresolved)
+                        {
+                            let (_board_val, _board_upper, move_index, _found_terminal) =
+                                alpha_beta_search(
+                                    &mut init_board,
+                                    10,
+                                    std::i8::MIN,
+                                    std::i8::MAX,
+                                    &mut ttable,
+                                    &legal_moves,
+                                    &zobrist_constants,
+                                );
+                            let a_move = GameMove {
+                                move_index,
+                                x_to_move: init_board.x_to_move,
+                            };
                             //            eprintln!("board:\n{}\nnext move:{:?}",ttt_board.display(),a_move);
                             assert_eq!(true, init_board.is_valid());
 
@@ -468,7 +643,7 @@ mod tests_ttt {
                     }
                 }
             }
-        };
+        }
         assert_eq!(28036, ttable.len());
         assert_eq!(484922, invalid_count);
         assert_eq!(39366, valid_count);
@@ -484,8 +659,10 @@ mod tests_ttt {
         };
         let zobrist_constants = TicTacToeZobrist {};
 
-        fn hash_successors(a_board: &mut TicTacToeState,
-                           visited_set: &mut HashSet<u32>, zobrist_constants: &TicTacToeZobrist,
+        fn hash_successors(
+            a_board: &mut TicTacToeState,
+            visited_set: &mut HashSet<u32>,
+            zobrist_constants: &TicTacToeZobrist,
         ) {
             let this_hash = a_board.hash_val();
             let legal_moves = Vec::new();
@@ -514,8 +691,11 @@ mod tests_ttt {
         };
         let zobrist_constants = TicTacToeZobrist {};
 
-        fn hash_paths(hash_base: u128, mut a_board: &mut TicTacToeState,
-                      mut visited_set: &mut HashSet<u128>, zobrist_constants: &TicTacToeZobrist,
+        fn hash_paths(
+            hash_base: u128,
+            mut a_board: &mut TicTacToeState,
+            mut visited_set: &mut HashSet<u128>,
+            zobrist_constants: &TicTacToeZobrist,
         ) {
             //            eprintln!("hash base: {}", hash_base);
             let legal_moves = Vec::new();
@@ -545,8 +725,11 @@ mod tests_ttt {
 
         let zobrist_constants = TicTacToeZobrist {};
 
-        fn hash_paths(hash_base: u128, mut a_board: &mut TicTacToeState,
-                      mut visited_set: &mut HashSet<u128>, zobrist_constants: &TicTacToeZobrist,
+        fn hash_paths(
+            hash_base: u128,
+            mut a_board: &mut TicTacToeState,
+            mut visited_set: &mut HashSet<u128>,
+            zobrist_constants: &TicTacToeZobrist,
         ) {
             //            eprintln!("hash base: {}", hash_base);
             let legal_moves = Vec::new();
@@ -573,10 +756,12 @@ mod tests_uttt {
     use std::time;
 
     use uttt::game_solving::{
-        alpha_beta_search, AlphaBetaCompatible, GameMove, GameResult, advance_rollout,
-        reverse_rollout, IdentityHasherBuilder,
+        advance_rollout, alpha_beta_search, reverse_rollout, AlphaBetaCompatible, GameMove,
+        GameResult, IdentityHasherBuilder,
     };
-    use uttt::uttt_trait_solving::{UltimateTicTacToeBoard, parse_index, SubBoardAndSquare, ZobristConstants};
+    use uttt::uttt_trait_solving::{
+        parse_index, SubBoardAndSquare, UltimateTicTacToeBoard, ZobristConstants,
+    };
 
     #[test]
     fn zobrist_constants_test() {
@@ -609,22 +794,31 @@ mod tests_uttt {
         let time_limit = 990_000;
         let mut rollout_count = 0;
 
-
         let mut uttt_board = UltimateTicTacToeBoard::default();
-        let first_move = GameMove { x_to_move: true, move_index: 40 };
+        let first_move = GameMove {
+            x_to_move: true,
+            move_index: 40,
+        };
         uttt_board.make_move(first_move, &zobrist_constants);
 
         let orig_board = uttt_board.clone();
         let now_instant = time::Instant::now();
         while now_instant.elapsed().as_micros() < time_limit {
             uttt_board = orig_board.clone();
-            while let Some(_new_alpha_beta) = advance_rollout(&mut unmove_queue,
-                                                              &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants) {
-//                    let (new_alpha, new_beta) = new_alpha_beta;
-//                    search_alpha = new_alpha;
-//                    search_beta = new_beta;
-            };
-//            let rollout_result = search_alpha;
+            while let Some(_new_alpha_beta) = advance_rollout(
+                &mut unmove_queue,
+                &mut uttt_board,
+                &legal_moves,
+                search_alpha,
+                search_beta,
+                &mut node_store,
+                &zobrist_constants,
+            ) {
+                //                    let (new_alpha, new_beta) = new_alpha_beta;
+                //                    search_alpha = new_alpha;
+                //                    search_beta = new_beta;
+            }
+            //            let rollout_result = search_alpha;
 
             assert_eq!(uttt_board.get_win_state() != GameResult::Unresolved, true);
             rollout_count += 1;
@@ -641,26 +835,37 @@ mod tests_uttt {
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
 
-
-        fn hash_successors(depth: u8, a_board: &mut UltimateTicTacToeBoard,
-                           visited_set: &mut HashSet<u64>, legal_moves: &Vec<Vec<GameMove>>,
-                           zobrist_constants: &ZobristConstants, leaf_count: &mut usize,
+        fn hash_successors(
+            depth: u8,
+            a_board: &mut UltimateTicTacToeBoard,
+            visited_set: &mut HashSet<u64>,
+            legal_moves: &Vec<Vec<GameMove>>,
+            zobrist_constants: &ZobristConstants,
+            leaf_count: &mut usize,
         ) {
             let this_hash = a_board.hash_val();
             visited_set.insert(this_hash);
 
-            if depth == 0 {} else if a_board.get_win_state() == GameResult::Unresolved {
+            if depth == 0 {
+            } else if a_board.get_win_state() == GameResult::Unresolved {
                 let successors = a_board.get_legal_moves(&legal_moves);
                 if depth == 1 {
                     *leaf_count += successors.len();
                 } else {
                     for each_move in &successors {
-//                        let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
-//                        hash_successors(depth-1,&mut a_board, &mut visited_set, legal_moves, zobrist_constants);
-//                        a_board.unmake_move(an_unmake);
+                        //                        let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
+                        //                        hash_successors(depth-1,&mut a_board, &mut visited_set, legal_moves, zobrist_constants);
+                        //                        a_board.unmake_move(an_unmake);
                         let mut new_board = a_board.clone();
                         new_board.make_move(*each_move, &zobrist_constants);
-                        hash_successors(depth - 1, &mut new_board, visited_set, legal_moves, zobrist_constants, leaf_count);
+                        hash_successors(
+                            depth - 1,
+                            &mut new_board,
+                            visited_set,
+                            legal_moves,
+                            zobrist_constants,
+                            leaf_count,
+                        );
                     }
                 }
             }
@@ -668,12 +873,24 @@ mod tests_uttt {
         for i in 0..=7 {
             let expt_start = time::Instant::now();
             let mut leaf_count = 0;
-            hash_successors(i, &mut init_board, &mut visited, &legal_moves, &zobrist_constants, &mut leaf_count);
+            hash_successors(
+                i,
+                &mut init_board,
+                &mut visited,
+                &legal_moves,
+                &zobrist_constants,
+                &mut leaf_count,
+            );
 
-            eprintln!("found {} positions at depth {} in {} ms", visited.len() + leaf_count, i, expt_start.elapsed().as_millis())
+            eprintln!(
+                "found {} positions at depth {} in {} ms",
+                visited.len() + leaf_count,
+                i,
+                expt_start.elapsed().as_millis()
+            )
         }
         assert_eq!(4116682, visited.len()); // Value isn't crucial
-        // Depth 7 in ~953 ms prior to precomputed transitions
+                                            // Depth 7 in ~953 ms prior to precomputed transitions
     }
 
     #[test]
@@ -681,7 +898,7 @@ mod tests_uttt {
         let mut unmove_queue = Vec::with_capacity(81);
 
         let mut node_store = HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder {});
-//        let mut node_store= HashMap::with_capacity(2_000_000, );
+        //        let mut node_store= HashMap::with_capacity(2_000_000, );
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
@@ -691,34 +908,50 @@ mod tests_uttt {
         let time_limit = 990_000;
         let mut rollout_count = 0;
 
-
         let mut uttt_board = UltimateTicTacToeBoard::default();
-        let first_move = GameMove { x_to_move: true, move_index: 40 };
+        let first_move = GameMove {
+            x_to_move: true,
+            move_index: 40,
+        };
         uttt_board.make_move(first_move, &zobrist_constants);
 
         let orig_board = uttt_board.clone();
         let now_instant = time::Instant::now();
         while now_instant.elapsed().as_micros() < time_limit {
-            while let Some(new_alpha_beta) = advance_rollout(&mut unmove_queue,
-                                                             &mut uttt_board, &legal_moves, search_alpha, search_beta, &mut node_store, &zobrist_constants) {
+            while let Some(new_alpha_beta) = advance_rollout(
+                &mut unmove_queue,
+                &mut uttt_board,
+                &legal_moves,
+                search_alpha,
+                search_beta,
+                &mut node_store,
+                &zobrist_constants,
+            ) {
                 let (new_alpha, new_beta) = new_alpha_beta;
                 search_alpha = new_alpha;
                 search_beta = new_beta;
-            };
+            }
             let rollout_result = search_alpha;
 
             assert_eq!(uttt_board.get_win_state() != GameResult::Unresolved, true);
 
-            reverse_rollout(rollout_result, &mut unmove_queue, &mut uttt_board,
-                            &mut node_store,
+            reverse_rollout(
+                rollout_result,
+                &mut unmove_queue,
+                &mut uttt_board,
+                &mut node_store,
             );
             assert_eq!(orig_board, uttt_board);
             rollout_count += 1;
         }
 
         eprintln!("completed {} rollouts with backup", rollout_count);
-        assert_eq!(true, rollout_count > 12000, "expected more than 12000 rollouts from starting position");
-//            assert_eq!(rollout_count, 50000);
+        assert_eq!(
+            true,
+            rollout_count > 12000,
+            "expected more than 12000 rollouts from starting position"
+        );
+        //            assert_eq!(rollout_count, 50000);
     }
 
     #[test]
@@ -756,8 +989,8 @@ mod tests_uttt {
     #[test]
     fn display_test2() {
         let x = UltimateTicTacToeBoard {
-            xbb: [0u16, 0u16, 4u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16, ],
-            obb: [4u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16, ],
+            xbb: [0u16, 0u16, 4u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16],
+            obb: [4u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16, 0u16],
             last_super_index: 9,
             x_supers: 0,
             o_supers: 0,
@@ -785,7 +1018,10 @@ mod tests_uttt {
         observed_hashes.insert(x.hash_state);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 40, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 40,
+            x_to_move: true,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         eprintln!("{}\n", board_string);
@@ -798,7 +1034,10 @@ mod tests_uttt {
         observed_hashes.insert(x.hash_state);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 36, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 36,
+            x_to_move: false,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         eprintln!("{}\n", board_string);
@@ -809,10 +1048,13 @@ mod tests_uttt {
         assert_eq!(0, x.x_supers);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 0, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 0,
+            x_to_move: true,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            eprintln!("{}\n", board_string);
+        //            eprintln!("{}\n", board_string);
         assert_eq!(board_string, "X..+...+...\n...+...+...\n...+...+...\n+++++++++++\n...+O..+...\n...+.X.+...\n...+...+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n");
         assert_eq!(x.x_to_move, false);
         assert_eq!(0, x.last_super_index);
@@ -820,10 +1062,13 @@ mod tests_uttt {
         assert_eq!(0, x.x_supers);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 4, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 4,
+            x_to_move: false,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            eprintln!("{}\n", board_string);
+        //            eprintln!("{}\n", board_string);
         assert_eq!(board_string, "X..+...+...\n.O.+...+...\n...+...+...\n+++++++++++\n...+O..+...\n...+.X.+...\n...+...+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n");
         assert_eq!(x.x_to_move, true);
         assert_eq!(4, x.last_super_index);
@@ -831,10 +1076,13 @@ mod tests_uttt {
         assert_eq!(0, x.x_supers);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 37, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 37,
+            x_to_move: true,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            eprintln!("{}\n", board_string);
+        //            eprintln!("{}\n", board_string);
         assert_eq!(board_string, "X..+...+...\n.O.+...+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+...+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n");
         assert_eq!(x.x_to_move, false);
         assert_eq!(1, x.last_super_index);
@@ -842,37 +1090,49 @@ mod tests_uttt {
         assert_eq!(0, x.x_supers);
 
         //testing an x move
-        let ttt_move = GameMove { move_index: 13, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 13,
+            x_to_move: false,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            eprintln!("{}\n", board_string);
+        //            eprintln!("{}\n", board_string);
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+...+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n");
         assert_eq!(x.x_to_move, true);
         assert_eq!(4, x.last_super_index);
         assert_eq!(0, x.o_supers);
         assert_eq!(0, x.x_supers);
 
-        let ttt_move = GameMove { move_index: 43, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 43,
+            x_to_move: true,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            eprintln!("{}\n", board_string);
+        //            eprintln!("{}\n", board_string);
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+.X.+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n");
         assert_eq!(x.x_to_move, false);
         assert_eq!(7, x.last_super_index);
         assert_eq!(0, x.o_supers);
         assert_eq!(1 << 4, x.x_supers);
 
-        let ttt_move = GameMove { move_index: 71, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 71,
+            x_to_move: false,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
-//            eprintln!("{}\n", board_string);
+        //            eprintln!("{}\n", board_string);
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+.X.+...\n+++++++++++\n...+...+...\n...+...+...\n...+..O+...\n");
         assert_eq!(x.x_to_move, true);
         assert_eq!(8, x.last_super_index);
         assert_eq!(0, x.o_supers);
         assert_eq!(1 << 4, x.x_supers);
 
-        let ttt_move = GameMove { move_index: 79, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 79,
+            x_to_move: true,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+.X.+...\n+++++++++++\n...+...+...\n...+...+...\n...+..O+.X.\n");
@@ -881,7 +1141,10 @@ mod tests_uttt {
         assert_eq!(0, x.o_supers);
         assert_eq!(1 << 4, x.x_supers);
 
-        let ttt_move = GameMove { move_index: 69, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 69,
+            x_to_move: false,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+.X.+...\n+++++++++++\n...+...+...\n...+...+...\n...+O.O+.X.\n");
@@ -890,7 +1153,10 @@ mod tests_uttt {
         assert_eq!(0, x.o_supers);
         assert_eq!(1 << 4, x.x_supers);
 
-        let ttt_move = GameMove { move_index: 61, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 61,
+            x_to_move: true,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+.X.+...\n+++++++++++\n...+...+...\n...+...+...\n.X.+O.O+.X.\n");
@@ -899,7 +1165,10 @@ mod tests_uttt {
         assert_eq!(0, x.o_supers);
         assert_eq!(1 << 4, x.x_supers);
 
-        let ttt_move = GameMove { move_index: 70, x_to_move: false };
+        let ttt_move = GameMove {
+            move_index: 70,
+            x_to_move: false,
+        };
         let _unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         assert_eq!(board_string, "X..+...+...\n.O.+.O.+...\n...+...+...\n+++++++++++\n...+OX.+...\n...+.X.+...\n...+.X.+...\n+++++++++++\n...+...+...\n...+...+...\n.X.+OOO+.X.\n");
@@ -909,20 +1178,23 @@ mod tests_uttt {
         assert_eq!(1 << 4, x.x_supers);
 
         eprintln!("{}\n", board_string);
-//            assert_eq!(1,2);
+        //            assert_eq!(1,2);
     }
 
     #[test]
     fn get_index_tests() {
-//            let mut sub_col = 0u8;
-//            let mut super_col = 0u8;
-//            let mut sub_row = 0u8;
-//            let mut super_row = 0u8;
+        //            let mut sub_col = 0u8;
+        //            let mut super_col = 0u8;
+        //            let mut sub_row = 0u8;
+        //            let mut super_row = 0u8;
 
         let sub_board = 5;
         let sub_square = 6;
 
-        let expected_tuple = SubBoardAndSquare { sub_board_index: sub_board, sub_square_index: sub_square };
+        let expected_tuple = SubBoardAndSquare {
+            sub_board_index: sub_board,
+            sub_square_index: sub_square,
+        };
         let actual_tuple = parse_index(51);
 
         assert_eq!(expected_tuple, actual_tuple);
@@ -930,8 +1202,7 @@ mod tests_uttt {
 
     #[test]
     fn playout_test() {
-
-//            let mut move_count = 0;
+        //            let mut move_count = 0;
         let base_board = UltimateTicTacToeBoard {
             xbb: [0u16; 9],
             obb: [0u16; 9],
@@ -944,7 +1215,6 @@ mod tests_uttt {
 
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
-
 
         let expt_start = time::Instant::now();
 
@@ -959,17 +1229,20 @@ mod tests_uttt {
                     }
                     None => break,
                 }
-//                    eprintln!("{}\n", uttt_board.display());
-//                    assert_eq!(true, uttt_board.is_valid());
+                //                    eprintln!("{}\n", uttt_board.display());
+                //                    assert_eq!(true, uttt_board.is_valid());
             }
         }
 
         let elapsed_time = expt_start.elapsed().as_micros();
         eprintln!("elapsed time: {}", elapsed_time); // 5456 microseconds to 1200 rollouts prior to
-        // precomputed transition migration
-        assert_eq!(true, elapsed_time < 50000, "time was not less than 50k microseconds");
+                                                     // precomputed transition migration
+        assert_eq!(
+            true,
+            elapsed_time < 50000,
+            "time was not less than 50k microseconds"
+        );
     }
-
 
     #[test]
     fn make_and_unmake_move_test_1() {
@@ -987,9 +1260,11 @@ mod tests_uttt {
         assert_eq!(board_string, "...+...+...\n...+...+...\n...+...+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n+++++++++++\n...+...+...\n...+...+...\n...+...+...\n");
         assert_eq!(x.x_to_move, true);
 
-
         //testing an x move
-        let ttt_move = GameMove { move_index: 40, x_to_move: true };
+        let ttt_move = GameMove {
+            move_index: 40,
+            x_to_move: true,
+        };
         let unmake_move = x.make_move(ttt_move, &zobrist_constants);
         let board_string = x.display();
         eprintln!("{}", board_string);
@@ -1026,7 +1301,6 @@ mod tests_uttt {
         }
     }
 
-
     #[test]
     fn alpha_beta_playout_test() {
         let mut uttt_board = UltimateTicTacToeBoard {
@@ -1045,19 +1319,26 @@ mod tests_uttt {
 
         while uttt_board.get_win_state() == GameResult::Unresolved {
             let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                &mut uttt_board, 1, std::i8::MIN, std::i8::MAX,
-                &mut ttable, &legal_moves, &zobrist_constants,
+                &mut uttt_board,
+                1,
+                std::i8::MIN,
+                std::i8::MAX,
+                &mut ttable,
+                &legal_moves,
+                &zobrist_constants,
             );
 
-            let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
+            let ab_move = GameMove {
+                x_to_move: uttt_board.x_to_move(),
+                move_index,
+            };
             uttt_board.make_move(ab_move, &zobrist_constants);
         }
     }
 
     #[test]
     fn alpha_beta_playout_fast_d2_test() {
-
-//            let mut move_count = 0;
+        //            let mut move_count = 0;
         let mut ttable = HashMap::new();
 
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
@@ -1075,16 +1356,24 @@ mod tests_uttt {
             };
             let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
             while uttt_board.get_win_state() == GameResult::Unresolved {
-//                    eprintln!("===========\n{}",uttt_board.display());
+                //                    eprintln!("===========\n{}",uttt_board.display());
                 let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                    &mut uttt_board, 2, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves, &zobrist_constants,
+                    &mut uttt_board,
+                    2,
+                    std::i8::MIN,
+                    std::i8::MAX,
+                    &mut ttable,
+                    &legal_moves,
+                    &zobrist_constants,
                 );
 
-                let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
+                let ab_move = GameMove {
+                    x_to_move: uttt_board.x_to_move(),
+                    move_index,
+                };
                 if move_index < 100 {
                     uttt_board.make_move(ab_move, &zobrist_constants);
-//                        move_count += 1;
+                //                        move_count += 1;
                 } else {
                     break;
                 }
@@ -1098,8 +1387,7 @@ mod tests_uttt {
 
     #[test]
     fn alpha_beta_playout_fast_d4_test() {
-
-//            let mut move_count = 0;
+        //            let mut move_count = 0;
         let mut ttable = HashMap::new();
 
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
@@ -1121,11 +1409,19 @@ mod tests_uttt {
             let mut uttt_board = master_board.clone();
             while uttt_board.get_win_state() == GameResult::Unresolved {
                 let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
-                    &mut uttt_board, 4, std::i8::MIN, std::i8::MAX,
-                    &mut ttable, &legal_moves, &zobrist_constants,
+                    &mut uttt_board,
+                    4,
+                    std::i8::MIN,
+                    std::i8::MAX,
+                    &mut ttable,
+                    &legal_moves,
+                    &zobrist_constants,
                 );
 
-                let ab_move = GameMove { x_to_move: uttt_board.x_to_move(), move_index };
+                let ab_move = GameMove {
+                    x_to_move: uttt_board.x_to_move(),
+                    move_index,
+                };
                 uttt_board.make_move(ab_move, &zobrist_constants);
             }
         }
@@ -1138,9 +1434,8 @@ mod tests_uttt {
     #[test]
     fn array_legal_lookup() {
         use uttt::ttt_trait_solving::TicTacToeState;
-//            let mut uttt_board = UTTTBoard::default();
+        //            let mut uttt_board = UTTTBoard::default();
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
-
 
         let test_pos_x_1 = 256 + 16;
         let test_pos_o_1 = 4 + 2;
@@ -1153,13 +1448,13 @@ mod tests_uttt {
         };
         let lookup_result = legal_moves.get(init_board.to_index() as usize);
         assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 0);
-//            eprintln!("For board:\n{}\n{:?}\n",init_board.display(),lookup_result);
+        //            eprintln!("For board:\n{}\n{:?}\n",init_board.display(),lookup_result);
         init_board.x_to_move = false;
         let lookup_result = legal_moves.get(init_board.to_index() as usize);
         assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 0);
-//            eprintln!("For board:\n{}\n{:?}\n",init_board.display(),lookup_result);
+        //            eprintln!("For board:\n{}\n{:?}\n",init_board.display(),lookup_result);
 
-//            init_board.get_legal_moves()
+        //            init_board.get_legal_moves()
         let test_pos_x_2 = 256 + 128;
         let test_pos_o_2 = 4 + 2;
         let x_to_move = true;
@@ -1175,7 +1470,7 @@ mod tests_uttt {
         let lookup_result = legal_moves.get(init_board.to_index() as usize);
         assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 0);
 
-//            init_board.get_legal_moves()
+        //            init_board.get_legal_moves()
         let test_pos_x_3 = 1 + 16;
         let test_pos_o_3 = 64 + 128;
         let x_to_move = true;
@@ -1191,7 +1486,7 @@ mod tests_uttt {
         let lookup_result = legal_moves.get(init_board.to_index() as usize);
         assert_eq!(lookup_result.unwrap().get(0).unwrap().move_index, 8);
 
-//            init_board.get_legal_moves()
+        //            init_board.get_legal_moves()
         let test_pos_x_3 = 1 + 2;
         let test_pos_o_3 = 64 + 128;
         let x_to_move = true;
@@ -1209,7 +1504,6 @@ mod tests_uttt {
 
         assert_eq!(524288, legal_moves.len());
     }
-
 
     #[test]
     fn alpha_beta_zero_window() {
@@ -1230,11 +1524,15 @@ mod tests_uttt {
 
         let mut ttable = HashMap::new();
 
-
         let search_start = time::Instant::now();
         let (board_val, board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut uttt_board, 8, std::i8::MAX - 1, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut uttt_board,
+            8,
+            std::i8::MAX - 1,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
         eprintln!("board lower: {}\nboard upper: {}", board_val, board_upper);
@@ -1242,11 +1540,13 @@ mod tests_uttt {
         assert_eq!(board_upper, 1);
 
         eprintln!("ttable size: {}", ttable.len());
-        eprintln!("elapsed search time: {}", search_start.elapsed().as_micros());
+        eprintln!(
+            "elapsed search time: {}",
+            search_start.elapsed().as_micros()
+        );
         assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
-//            assert_eq!(true,false);
+        //            assert_eq!(true,false);
     }
-
 
     #[test]
     fn alpha_beta_hash_test_1a() {
@@ -1266,21 +1566,28 @@ mod tests_uttt {
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
         let mut ttable = HashMap::new();
-//            let (board_val, move_index) = alpha_beta_search(
-//                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
-//            );
+        //            let (board_val, move_index) = alpha_beta_search(
+        //                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
+        //            );
         let search_start = time::Instant::now();
 
         alpha_beta_search(
-            &mut uttt_board, 5, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut uttt_board,
+            5,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
         eprintln!("ttable size: {}", ttable.len());
-        eprintln!("elapsed search time: {}", search_start.elapsed().as_millis());
+        eprintln!(
+            "elapsed search time: {}",
+            search_start.elapsed().as_millis()
+        );
         assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
     }
-
 
     #[test]
     fn alpha_beta_hash_test_1b() {
@@ -1300,20 +1607,27 @@ mod tests_uttt {
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
         let mut ttable = HashMap::new();
-//            let (board_val, move_index) = alpha_beta_search(
-//                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
-//            );
+        //            let (board_val, move_index) = alpha_beta_search(
+        //                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
+        //            );
         let search_start = time::Instant::now();
         alpha_beta_search(
-            &mut uttt_board, 6, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &legal_moves, &zobrist_constants,
+            &mut uttt_board,
+            6,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
         );
 
         eprintln!("ttable size: {}", ttable.len());
-        eprintln!("elapsed search time: {}", search_start.elapsed().as_micros());
+        eprintln!(
+            "elapsed search time: {}",
+            search_start.elapsed().as_micros()
+        );
         assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
     }
-
 
     #[test]
     fn constant_move_order_test() {
@@ -1332,19 +1646,26 @@ mod tests_uttt {
         let default_ordering = UltimateTicTacToeBoard::get_move_ordering_array();
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
-
         let mut ttable = HashMap::new();
-//            let (board_val, move_index) = alpha_beta_search(
-//                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
-//            );
+        //            let (board_val, move_index) = alpha_beta_search(
+        //                &mut uttt_board, 3, std::i8::MIN, std::i8::MAX, &mut ttable,
+        //            );
         let search_start = time::Instant::now();
         alpha_beta_search(
-            &mut uttt_board, 5, std::i8::MIN, std::i8::MAX,
-            &mut ttable, &default_ordering, &zobrist_constants,
+            &mut uttt_board,
+            5,
+            std::i8::MIN,
+            std::i8::MAX,
+            &mut ttable,
+            &default_ordering,
+            &zobrist_constants,
         );
 
         eprintln!("ttable size: {}", ttable.len());
-        eprintln!("elapsed search time: {}", search_start.elapsed().as_micros());
+        eprintln!(
+            "elapsed search time: {}",
+            search_start.elapsed().as_micros()
+        );
         assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
     }
 }

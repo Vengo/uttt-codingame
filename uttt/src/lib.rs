@@ -634,7 +634,38 @@ pub mod ttt_trait_solving {
                         .iter()
                         .filter(|each_successor| (each_successor.board_id != 0));
 
+                    let this_distance_to_x_win: u8 = 1 + successors_x_to_move
+                        .clone()
+                        .map(|each_successor| {
+                            board_distance_to_x_win[each_successor.board_id as usize]
+                        })
+                        .min()
+                        .unwrap()
+                        .min(254);
+                    board_distance_to_x_win[board_index] = this_distance_to_x_win;
+
+                    let successors_o_to_move = o_transitions[board_index]
+                        .iter()
+                        .filter(|each_successor| (each_successor.board_id != 0));
+
+                    let this_distance_to_o_win: u8 = 1 + successors_o_to_move
+                        .clone()
+                        .map(|each_successor| {
+                            board_distance_to_o_win[each_successor.board_id as usize]
+                        })
+                        .min()
+                        .unwrap()
+                        .min(254);
+                    board_distance_to_o_win[board_index] = this_distance_to_o_win;
+
+                    // TODO: this is where code should go to find minmax value and optimal depth for that solution
                     // let distance_x_to_win = if
+                    eprintln!(
+                        "x/o distance to win for board:\n{}\nare {} and {}\n=========",
+                        board.display(),
+                        this_distance_to_x_win,
+                        this_distance_to_o_win
+                    );
                 }
             }
 

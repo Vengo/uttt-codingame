@@ -695,6 +695,10 @@ pub mod ttt_trait_solving {
                 board_minimax_value_depth_x_to_move,
             }
         }
+
+        pub fn get_move_ordering_array(&self) -> {
+
+        }
     }
 
     pub const BB_STATE_CHECK: [GameResult; 512] = TicTacToeBoard::make_bb_lookup();

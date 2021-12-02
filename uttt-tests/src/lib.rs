@@ -34,6 +34,7 @@ mod tests_ttt {
     #[test]
     fn test_move_ordering_array() {
         let array = TicTacToeState::get_move_ordering_array();
+        let engine = TicTacToeEngine::default();
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -359,8 +360,8 @@ mod tests_ttt {
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
             &mut ttt_board,
             10,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -373,8 +374,8 @@ mod tests_ttt {
             let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                 &mut ttt_board,
                 10,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants,
@@ -410,8 +411,8 @@ mod tests_ttt {
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
             &mut ttt_board,
             10,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -425,8 +426,8 @@ mod tests_ttt {
             let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                 &mut ttt_board,
                 10,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants,
@@ -464,8 +465,8 @@ mod tests_ttt {
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
             &mut ttt_board,
             10,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -480,8 +481,8 @@ mod tests_ttt {
             let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                 &mut ttt_board,
                 10,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants,
@@ -517,8 +518,8 @@ mod tests_ttt {
         let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
             &mut ttt_board,
             10,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -530,8 +531,8 @@ mod tests_ttt {
             let (board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                 &mut ttt_board,
                 10,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants,
@@ -568,8 +569,8 @@ mod tests_ttt {
             alpha_beta_search(
                 &mut ttt_board,
                 10,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants
@@ -580,8 +581,8 @@ mod tests_ttt {
             let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                 &mut ttt_board,
                 10,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants,
@@ -623,8 +624,8 @@ mod tests_ttt {
                                 alpha_beta_search(
                                     &mut init_board,
                                     10,
-                                    std::i8::MIN,
-                                    std::i8::MAX,
+                                    i8::MIN,
+                                    i8::MAX,
                                     &mut ttable,
                                     &legal_moves,
                                     &zobrist_constants,
@@ -788,8 +789,8 @@ mod tests_uttt {
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
-        let search_alpha = std::i8::MIN;
-        let search_beta = std::i8::MAX;
+        let search_alpha = i8::MIN;
+        let search_beta = i8::MAX;
 
         let time_limit = 990_000;
         let mut rollout_count = 0;
@@ -902,8 +903,8 @@ mod tests_uttt {
         let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
         let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
-        let mut search_alpha = std::i8::MIN;
-        let mut search_beta = std::i8::MAX;
+        let mut search_alpha = i8::MIN;
+        let mut search_beta = i8::MAX;
 
         let time_limit = 990_000;
         let mut rollout_count = 0;
@@ -1321,8 +1322,8 @@ mod tests_uttt {
             let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                 &mut uttt_board,
                 1,
-                std::i8::MIN,
-                std::i8::MAX,
+                i8::MIN,
+                i8::MAX,
                 &mut ttable,
                 &legal_moves,
                 &zobrist_constants,
@@ -1360,8 +1361,8 @@ mod tests_uttt {
                 let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                     &mut uttt_board,
                     2,
-                    std::i8::MIN,
-                    std::i8::MAX,
+                    i8::MIN,
+                    i8::MAX,
                     &mut ttable,
                     &legal_moves,
                     &zobrist_constants,
@@ -1411,8 +1412,8 @@ mod tests_uttt {
                 let (_board_val, _board_upper, move_index, _found_terminal) = alpha_beta_search(
                     &mut uttt_board,
                     4,
-                    std::i8::MIN,
-                    std::i8::MAX,
+                    i8::MIN,
+                    i8::MAX,
                     &mut ttable,
                     &legal_moves,
                     &zobrist_constants,
@@ -1528,8 +1529,8 @@ mod tests_uttt {
         let (board_val, board_upper, _move_index, _found_terminal) = alpha_beta_search(
             &mut uttt_board,
             8,
-            std::i8::MAX - 1,
-            std::i8::MAX,
+            i8::MAX - 1,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -1574,8 +1575,8 @@ mod tests_uttt {
         alpha_beta_search(
             &mut uttt_board,
             5,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -1614,8 +1615,8 @@ mod tests_uttt {
         alpha_beta_search(
             &mut uttt_board,
             6,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &legal_moves,
             &zobrist_constants,
@@ -1654,8 +1655,8 @@ mod tests_uttt {
         alpha_beta_search(
             &mut uttt_board,
             5,
-            std::i8::MIN,
-            std::i8::MAX,
+            i8::MIN,
+            i8::MAX,
             &mut ttable,
             &default_ordering,
             &zobrist_constants,

@@ -35,7 +35,7 @@ mod tests_ttt {
     fn test_move_ordering_array() {
         let array = TicTacToeState::get_move_ordering_array();
         let engine = TicTacToeEngine::default();
-        let other_array = engine.get_move_ordering_array();
+        let legal_moves = engine.get_move_ordering_array();
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -46,7 +46,7 @@ mod tests_ttt {
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
-        println!("other legal: {:?}", board.get_legal_moves(&other_array));
+        println!("other legal: {:?}", board.get_legal_moves(&legal_moves));
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -57,7 +57,7 @@ mod tests_ttt {
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
-        println!("other legal: {:?}", board.get_legal_moves(&other_array));
+        println!("other legal: {:?}", board.get_legal_moves(&legal_moves));
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -68,7 +68,7 @@ mod tests_ttt {
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
-        println!("other legal: {:?}", board.get_legal_moves(&other_array));
+        println!("other legal: {:?}", board.get_legal_moves(&legal_moves));
 
         assert_eq!(true, false, "just making the tests visible in my IDE");
     }
@@ -357,7 +357,8 @@ mod tests_ttt {
             obb: 44,
             x_to_move: true,
         };
-        let legal_moves = Vec::new();
+        let engine = TicTacToeEngine::default();
+        let legal_moves = engine.get_move_ordering_array();
         let zobrist_constants = TicTacToeZobrist {};
 
         let mut ttable = HashMap::new();
@@ -388,11 +389,11 @@ mod tests_ttt {
                 move_index,
                 x_to_move: ttt_board.x_to_move,
             };
-            //                eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
-            //                assert_eq!(true, ttt_board.is_valid());
+            eprintln!("board:\n{}\nnext move:{:?}", ttt_board.display(), a_move);
+            assert_eq!(true, ttt_board.is_valid());
 
             ttt_board.make_move(a_move, &zobrist_constants);
-            //                eprintln!("{}", ttt_board.display());
+            eprintln!("{}", ttt_board.display());
         }
         assert_eq!(-128, board_val);
 

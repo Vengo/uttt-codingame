@@ -1180,18 +1180,13 @@ pub mod ttt_trait_solving {
 
         fn get_legal_moves(&self, _legal_lookup: &[Vec<GameMove>]) -> Vec<GameMove> {
             //TODO: This should probably use the legal lookup directly
-            let occupied_bb = self.xbb | self.obb;
-
-            MOVE_ORDERING
-                .iter()
-                .filter_map(|a_move_index| match occupied_bb & (1u16 << a_move_index) {
-                    0 => Some(GameMove {
-                        x_to_move: self.x_to_move,
-                        move_index: *a_move_index,
-                    }),
-                    _nonzero => None,
-                })
-                .collect()
+            let board_state = TicTacToeState {
+                xbb: self.xbb,
+                obb: self.obb,
+                x_to_move: self.x_to_move,
+            };
+            let board_index = board_state.to_index();
+            _legal_lookup[board_index as usize].clone()
         }
 
         fn display(&self) -> String {
@@ -1322,21 +1317,18 @@ pub mod uttt_trait_solving {
 
             let lookup_index = subboard.to_index();
             match legality_lookup.get(lookup_index as usize) {
-                Some(move_vec) => {
-                    eprintln!("found move vector: {:?}", move_vec);
-                    move_vec
-                        .iter()
-                        .map(
-                            |GameMove {
-                                 x_to_move: _side,
-                                 move_index: a_move_index,
-                             }| GameMove {
-                                x_to_move: side_to_move,
-                                move_index: a_move_index + 9 * subboard_index as u8,
-                            },
-                        )
-                        .collect()
-                }
+                Some(move_vec) => move_vec
+                    .iter()
+                    .map(
+                        |GameMove {
+                             x_to_move: _side,
+                             move_index: a_move_index,
+                         }| GameMove {
+                            x_to_move: side_to_move,
+                            move_index: a_move_index + 9 * subboard_index as u8,
+                        },
+                    )
+                    .collect(),
                 None => {
                     panic!("It shouldn't be possible for subboard moves not to find a move vector")
                 }

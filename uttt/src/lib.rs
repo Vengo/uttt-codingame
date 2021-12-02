@@ -696,8 +696,63 @@ pub mod ttt_trait_solving {
             }
         }
 
-        pub fn get_move_ordering_array(&self) -> {
+        pub fn get_move_ordering_array(&self) -> Vec<Vec<GameMove>> {
+            let mut move_vec: Vec<Vec<GameMove>> = vec![Vec::with_capacity(0); 524_288];
+            for (number, each_board) in self.boards.iter().enumerate() {
+                let TicTacToeBoard { xbb, obb } = each_board;
+                for x_to_move in &[true, false] {
+                    let board = TicTacToeState {
+                        xbb: *xbb,
+                        obb: *obb,
+                        x_to_move: *x_to_move,
+                    };
+                    let big_index = board.to_index();
 
+                    let successor_ids = if *x_to_move {
+                        self.board_transitions_x_to_move[number]
+                    } else {
+                        self.board_transitions_o_to_move[number]
+                    };
+
+                    let mut valid_successors: Vec<(usize, &TicTacToeBoardId)> = successor_ids
+                        .iter()
+                        .enumerate()
+                        .filter(|each_successor| {
+                            let (_index, id) = each_successor;
+                            TicTacToeBoardId { board_id: 0 }.ne(id)
+                        })
+                        .collect();
+
+                    if *x_to_move {
+                        valid_successors.sort_by_key(|(move_number, board_id)| {
+                            let successor_id = board_id.board_id as usize;
+                            let (val, val_depth) =
+                                self.board_minimax_value_depth_x_to_move[successor_id];
+                            let threat_depth = self.board_distance_to_x_win[successor_id];
+                            let defense_depth = self.board_distance_to_o_win[successor_id];
+                            (-(val as i16), threat_depth, -(defense_depth as i16))
+                        });
+                    } else {
+                        valid_successors.sort_by_key(|(move_number, board_id)| {
+                            let successor_id = board_id.board_id as usize;
+                            let (val, val_depth) =
+                                self.board_minimax_value_depth_o_to_move[successor_id];
+                            let threat_depth = self.board_distance_to_o_win[successor_id];
+                            let defense_depth = self.board_distance_to_x_win[successor_id];
+                            (-(val as i16), threat_depth, -(defense_depth as i16))
+                        });
+                    }
+
+                    move_vec[big_index as usize] = valid_successors
+                        .iter()
+                        .map(|(move_number, _board_id)| GameMove {
+                            move_index: *move_number as u8,
+                            x_to_move: *x_to_move,
+                        })
+                        .collect();
+                }
+            }
+            move_vec
         }
     }
 
@@ -1267,18 +1322,21 @@ pub mod uttt_trait_solving {
 
             let lookup_index = subboard.to_index();
             match legality_lookup.get(lookup_index as usize) {
-                Some(move_vec) => move_vec
-                    .iter()
-                    .map(
-                        |GameMove {
-                             x_to_move: _side,
-                             move_index: a_move_index,
-                         }| GameMove {
-                            x_to_move: side_to_move,
-                            move_index: a_move_index + 9 * subboard_index as u8,
-                        },
-                    )
-                    .collect(),
+                Some(move_vec) => {
+                    eprintln!("found move vector: {:?}", move_vec);
+                    move_vec
+                        .iter()
+                        .map(
+                            |GameMove {
+                                 x_to_move: _side,
+                                 move_index: a_move_index,
+                             }| GameMove {
+                                x_to_move: side_to_move,
+                                move_index: a_move_index + 9 * subboard_index as u8,
+                            },
+                        )
+                        .collect()
+                }
                 None => {
                     panic!("It shouldn't be possible for subboard moves not to find a move vector")
                 }

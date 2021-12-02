@@ -35,6 +35,7 @@ mod tests_ttt {
     fn test_move_ordering_array() {
         let array = TicTacToeState::get_move_ordering_array();
         let engine = TicTacToeEngine::default();
+        let other_array = engine.get_move_ordering_array();
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -45,6 +46,7 @@ mod tests_ttt {
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
+        println!("other legal: {:?}", board.get_legal_moves(&other_array));
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -55,6 +57,7 @@ mod tests_ttt {
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
+        println!("other legal: {:?}", board.get_legal_moves(&other_array));
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -65,6 +68,7 @@ mod tests_ttt {
 
         let legal = board.get_legal_moves(&array);
         println!("legal moves: {:?}", legal);
+        println!("other legal: {:?}", board.get_legal_moves(&other_array));
 
         assert_eq!(true, false, "just making the tests visible in my IDE");
     }

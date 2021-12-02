@@ -526,8 +526,8 @@ pub mod ttt_trait_solving {
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
 
-    const REACHABLE_BOARD_COUNT: usize = 18_752; // At most 3**9=19683 boards should exist
-                                                 // 18_752 is the number of tic tac toe boards reachable from the initial position without
+    const REACHABLE_BOARD_COUNT: usize = 18_753; // At most 3**9=19683 boards should exist
+                                                 // 18_753 is the number of tic tac toe boards reachable from the initial position without
                                                  //  requiring that players alternate moves (so x might move twice, then O 3 times.
 
     #[derive(Debug)]
@@ -572,7 +572,7 @@ pub mod ttt_trait_solving {
 
             let init_board = TicTacToeBoard { xbb: 0, obb: 0 };
             let mut board_index_to_expand = 0usize;
-            let mut board_index_to_write = 0usize;
+            let mut board_index_to_write = 1usize;
             numbered_boards[board_index_to_expand] = init_board;
             for board_index_to_expand in 0..REACHABLE_BOARD_COUNT {
                 let board: TicTacToeBoard = numbered_boards[board_index_to_expand];
@@ -623,8 +623,12 @@ pub mod ttt_trait_solving {
                 let board_win_state = board.get_win_state();
                 if board_win_state == GameResult::P1Win {
                     board_distance_to_x_win[board_index] = 0;
+                    board_minimax_value_depth_o_to_move[board_index] = (i8::MAX, 0);
+                    board_minimax_value_depth_x_to_move[board_index] = (i8::MAX, 0);
                 } else if board_win_state == GameResult::P2Win {
                     board_distance_to_o_win[board_index] = 0;
+                    board_minimax_value_depth_o_to_move[board_index] = (i8::MIN, 0);
+                    board_minimax_value_depth_x_to_move[board_index] = (i8::MIN, 0);
                 } else if board_win_state == GameResult::Tie {
                     board_minimax_value_depth_o_to_move[board_index] = (0, 0);
                     board_minimax_value_depth_x_to_move[board_index] = (0, 0);
@@ -644,6 +648,16 @@ pub mod ttt_trait_solving {
                         .min(254);
                     board_distance_to_x_win[board_index] = this_distance_to_x_win;
 
+                    let (minimax_val, minimax_depth): (i8, u8) = successors_x_to_move
+                        .clone()
+                        .map(|each_successor| {
+                            board_minimax_value_depth_o_to_move[each_successor.board_id as usize]
+                        })
+                        .max_by_key(|(value, depth)| (*value, 9 - depth))
+                        .unwrap();
+                    board_minimax_value_depth_x_to_move[board_index] =
+                        (minimax_val, 1 + minimax_depth);
+
                     let successors_o_to_move = o_transitions[board_index]
                         .iter()
                         .filter(|each_successor| (each_successor.board_id != 0));
@@ -658,14 +672,15 @@ pub mod ttt_trait_solving {
                         .min(254);
                     board_distance_to_o_win[board_index] = this_distance_to_o_win;
 
-                    // TODO: this is where code should go to find minmax value and optimal depth for that solution
-                    // let distance_x_to_win = if
-                    eprintln!(
-                        "x/o distance to win for board:\n{}\nare {} and {}\n=========",
-                        board.display(),
-                        this_distance_to_x_win,
-                        this_distance_to_o_win
-                    );
+                    let (minimax_val, minimax_depth): (i8, u8) = successors_o_to_move
+                        .clone()
+                        .map(|each_successor| {
+                            board_minimax_value_depth_x_to_move[each_successor.board_id as usize]
+                        })
+                        .min_by_key(|(value, depth)| (*value, 9 - *depth))
+                        .unwrap();
+                    board_minimax_value_depth_o_to_move[board_index] =
+                        (minimax_val, 1 + minimax_depth);
                 }
             }
 

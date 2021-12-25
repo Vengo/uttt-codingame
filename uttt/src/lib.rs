@@ -1,3 +1,5 @@
+use crate::ttt_trait_solving::TicTacToeEngine;
+
 pub mod game_solving {
     use std::cmp::{max, min, Ordering};
     use std::collections::HashMap;
@@ -562,13 +564,14 @@ pub mod ttt_trait_solving {
 
         pub fn new() -> Self {
             // Might be better to use the builder pattern, but I'm going to do it this way!
-
+            eprintln!("generating boards!");
             let mut board_to_index = HashMap::with_capacity(2 * REACHABLE_BOARD_COUNT);
             // 2*REACHABLE_BOARD_COUNT might stop a resize or two, but seems like a good bet.
             let mut numbered_boards: [TicTacToeBoard; REACHABLE_BOARD_COUNT] =
                 [TicTacToeBoard::default(); REACHABLE_BOARD_COUNT];
             let mut x_transitions = [[TicTacToeBoardId::default(); 9]; REACHABLE_BOARD_COUNT];
             let mut o_transitions = [[TicTacToeBoardId::default(); 9]; REACHABLE_BOARD_COUNT];
+            eprintln!("allocated boards!");
 
             let init_board = TicTacToeBoard { xbb: 0, obb: 0 };
             let mut board_index_to_expand = 0usize;
@@ -844,117 +847,6 @@ pub mod ttt_trait_solving {
                 })
                 .collect()
         }
-
-        pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
-            let mut move_vec: Vec<Vec<GameMove>> = vec![Vec::with_capacity(0); 524_288];
-            let mut terminal_conditions = vec![TicTacToeTerminal::default(); 524_288];
-
-            let zobrist_constants = TicTacToeZobrist {};
-            //            let move_lookup = Vec::new();
-
-            let xbb_iter = (0..512u16).rev();
-            let obb_iter = (0..512u16).rev();
-            let side_iter = [true, false].iter();
-
-            let bb_iter = xbb_iter.cartesian_product(obb_iter);
-            let sorted_bbs = bb_iter.sorted_by_key(|(a, b)| a.count_ones() + b.count_ones());
-
-            for ((xbb, obb), x_to_move) in sorted_bbs.rev().cartesian_product(side_iter) {
-                let mut init_board = TicTacToeState {
-                    xbb,
-                    obb,
-                    x_to_move: *x_to_move,
-                };
-                if init_board.is_valid() {
-                    let board_index = init_board.to_index();
-
-                    let (ttt_terminal, ordered_moves) =
-                        if init_board.get_win_state() != GameResult::Unresolved {
-                            (
-                                TicTacToeTerminal {
-                                    depth_to_terminal: 0,
-                                    terminal_value: init_board.score(),
-                                },
-                                Vec::with_capacity(0),
-                            )
-                        } else {
-                            let legal_moves = init_board.get_legal_moves_no_lookup();
-
-                            let mut mapped_moves: Vec<(
-                                OrderedFloat,
-                                u32,
-                                &TicTacToeTerminal,
-                                &GameMove,
-                            )> = legal_moves
-                                .iter()
-                                .map(|a_move| {
-                                    let undo = init_board.make_move(*a_move, &zobrist_constants);
-                                    let new_index = init_board.to_index();
-                                    let restored_terminal =
-                                        terminal_conditions.get(new_index as usize).unwrap();
-                                    let point_rate = OrderedFloat(
-                                        (restored_terminal.terminal_value as f32)
-                                            / ((restored_terminal.depth_to_terminal + 1) as f32),
-                                    );
-                                    let result_tuple =
-                                        (point_rate, new_index, restored_terminal, a_move);
-                                    init_board.unmake_move(undo);
-                                    result_tuple
-                                })
-                                .collect();
-                            mapped_moves.sort();
-
-                            if *x_to_move {
-                                mapped_moves.reverse()
-                            };
-
-                            let ordered_moves = mapped_moves
-                                .iter()
-                                .map(|(_, _, _, &a_move)| (a_move))
-                                .collect();
-
-                            let optimal_terminal = match mapped_moves.first() {
-                                Some((_, _, terminal, _a_move)) => *terminal,
-                                None => {
-                                    panic!("mapped_moves should never be non-empty")
-                                }
-                            };
-
-                            (
-                                TicTacToeTerminal {
-                                    depth_to_terminal: optimal_terminal.depth_to_terminal + 1,
-                                    terminal_value: optimal_terminal.terminal_value,
-                                },
-                                ordered_moves,
-                            )
-                        };
-
-                    match terminal_conditions.get_mut(board_index as usize) {
-                        Some(terminal_value) => {
-                            *terminal_value = ttt_terminal;
-                        }
-                        None => {
-                            eprintln!("Error finding terminal condition");
-                            panic!("attempted to get a ");
-                        }
-                    };
-
-                    match move_vec.get_mut(board_index as usize) {
-                        Some(move_list) => {
-                            *move_list = ordered_moves;
-                        }
-                        None => {
-                            eprintln!("Error finding terminal condition");
-                            panic!("attempted to get a ");
-                        }
-                    };
-                } else {
-                    //                    invalid_count += 1;
-                }
-            }
-
-            move_vec
-        }
     }
 
     impl TicTacToeBoard {
@@ -1207,7 +1099,7 @@ pub mod ttt_trait_solving {
 
 pub mod uttt_trait_solving {
     use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult};
-    use crate::ttt_trait_solving::TicTacToeState;
+    use crate::ttt_trait_solving::{TicTacToeEngine, TicTacToeState};
     use rand::{rngs, Rng, SeedableRng};
     use std::iter::FromIterator;
 
@@ -1336,7 +1228,10 @@ pub mod uttt_trait_solving {
         }
 
         pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
-            TicTacToeState::get_move_ordering_array()
+            eprintln!("making an engine");
+            let engine = TicTacToeEngine::new();
+            eprintln!("engine made");
+            engine.get_move_ordering_array()
         }
 
         pub fn get_zobrist_constants() -> ZobristConstants {
@@ -1634,19 +1529,21 @@ pub fn main() {
     let mut unmove_queue = Vec::with_capacity(81);
     let mut node_store = HashMap::with_capacity_and_hasher(2_000_000, IdentityHasherBuilder {});
     let mut legal_moves = Vec::new();
+    let mut engine;
 
     let rand_generation = time::Instant::now();
     let random_indices = {
         let mut seeded = rngs::StdRng::seed_from_u64(0);
-        let mut temporary_buffer: Vec<u16> = seeded.sample_iter(&Standard).take(16).collect();
+        let mut temporary_buffer: Vec<u16> =
+            seeded.sample_iter(&Standard).take(1_600_000).collect();
         // seeded.fill(&mut temporary_buffer);2
 
         temporary_buffer
     };
-    println!(
-        "generated values in {} microseconds",
-        rand_generation.elapsed().as_micros()
-    );
+    // println!(
+    //     "generated values in {} microseconds",
+    //     rand_generation.elapsed().as_micros()
+    // );
 
     loop {
         // **************************************************************
@@ -1661,7 +1558,8 @@ pub fn main() {
         // **************************************************************
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0 {
-            legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
+            engine = TicTacToeEngine::new();
+            legal_moves = engine.get_move_ordering_array();
             990_000
         } else {
             90_000

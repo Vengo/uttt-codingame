@@ -33,7 +33,7 @@ mod tests_ttt {
 
     #[test]
     fn test_move_ordering_array() {
-        let array = TicTacToeState::get_move_ordering_array();
+        // let array = TicTacToeState::get_move_ordering_array();
         let engine = TicTacToeEngine::default();
         let legal_moves = engine.get_move_ordering_array();
 
@@ -44,9 +44,8 @@ mod tests_ttt {
         };
         println!("board is:\n{}", board.display());
 
-        let legal = board.get_legal_moves(&array);
+        let legal = board.get_legal_moves(&legal_moves);
         println!("legal moves: {:?}", legal);
-        println!("other legal: {:?}", board.get_legal_moves(&legal_moves));
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -55,9 +54,8 @@ mod tests_ttt {
         };
         println!("board is:\n{}", board.display());
 
-        let legal = board.get_legal_moves(&array);
+        let legal = board.get_legal_moves(&legal_moves);
         println!("legal moves: {:?}", legal);
-        println!("other legal: {:?}", board.get_legal_moves(&legal_moves));
 
         let board = TicTacToeState {
             x_to_move: true,
@@ -66,11 +64,8 @@ mod tests_ttt {
         };
         println!("board is:\n{}", board.display());
 
-        let legal = board.get_legal_moves(&array);
+        let legal = board.get_legal_moves(&legal_moves);
         println!("legal moves: {:?}", legal);
-        println!("other legal: {:?}", board.get_legal_moves(&legal_moves));
-
-        assert_eq!(true, false, "just making the tests visible in my IDE");
     }
 
     #[test]
@@ -337,7 +332,8 @@ mod tests_ttt {
             x_to_move: true,
         };
 
-        let legal_moves = Vec::new();
+        let engine = TicTacToeEngine::default();
+        let legal_moves = engine.get_move_ordering_array();
         let zobrist_constants = TicTacToeZobrist {};
 
         while x.get_legal_moves(&legal_moves).len() > 0 {
@@ -397,7 +393,7 @@ mod tests_ttt {
         }
         assert_eq!(-128, board_val);
 
-        assert_eq!(ttt_board.display(), "O.O\nOXO\nX.O");
+        assert_eq!(ttt_board.display(), "X.O\nOOO\n...");
     }
 
     #[test]
@@ -409,19 +405,11 @@ mod tests_ttt {
             obb: 8,
             x_to_move: true,
         };
-        let legal_moves = Vec::new();
+        let engine = TicTacToeEngine::default();
+        let legal_moves = engine.get_move_ordering_array();
         let zobrist_constants = TicTacToeZobrist {};
 
         let mut ttable = HashMap::new();
-        let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut ttt_board,
-            10,
-            i8::MIN,
-            i8::MAX,
-            &mut ttable,
-            &legal_moves,
-            &zobrist_constants,
-        );
 
         //        let table_entry = ttable.entry(129);
         while (ttt_board.get_legal_moves(&legal_moves).len() > 0)
@@ -441,17 +429,22 @@ mod tests_ttt {
                 move_index,
                 x_to_move: ttt_board.x_to_move,
             };
-            //                eprintln!("board:\n{}\nnext move:{:?}\nevaluation {}", ttt_board.display(), a_move, board_val);
+            eprintln!(
+                "board:\n{}\nnext move:{:?}\nevaluation {}",
+                ttt_board.display(),
+                a_move,
+                board_val
+            );
             assert_eq!(true, ttt_board.is_valid());
 
             ttt_board.make_move(a_move, &zobrist_constants);
-            //                eprintln!("{}", ttt_board.display());
+            eprintln!("{}", ttt_board.display());
             assert_eq!(127, board_val);
         }
         //            eprintln!("game complete:\n{}", ttt_board.display());
-        assert_eq!(127, board_val);
+        assert_eq!(ttt_board.get_win_state(), GameResult::P1Win);
 
-        assert_eq!(ttt_board.display(), "X.O\nOX.\n..X");
+        assert_eq!(ttt_board.display(), "X..\nOXO\n..X");
     }
 
     #[test]
@@ -463,21 +456,11 @@ mod tests_ttt {
             obb: 12,
             x_to_move: false,
         };
-        let legal_moves = TicTacToeState::get_move_ordering_array();
+        let engine = TicTacToeEngine::default();
+        let legal_moves = engine.get_move_ordering_array();
         let zobrist_constants = TicTacToeZobrist {};
 
         let mut ttable = HashMap::new();
-        let (board_val, _board_upper, _move_index, _found_terminal) = alpha_beta_search(
-            &mut ttt_board,
-            10,
-            i8::MIN,
-            i8::MAX,
-            &mut ttable,
-            &legal_moves,
-            &zobrist_constants,
-        );
-
-        let legal_moves = Vec::new();
 
         //        let table_entry = ttable.entry(129);
         while (ttt_board.get_legal_moves(&legal_moves).len() > 0)
@@ -501,7 +484,7 @@ mod tests_ttt {
             ttt_board.make_move(a_move, &zobrist_constants);
             assert_eq!(0, board_val);
         }
-        assert_eq!(0, board_val);
+        assert_eq!(ttt_board.get_win_state(), GameResult::Tie);
 
         assert_eq!(ttt_board.display(), "XOO\nOXX\nXXO");
     }
@@ -516,7 +499,8 @@ mod tests_ttt {
             x_to_move: true,
         };
 
-        let legal_moves = Vec::new();
+        let engine = TicTacToeEngine::default();
+        let legal_moves = engine.get_move_ordering_array();
         let zobrist_constants = TicTacToeZobrist {};
 
         let mut ttable = HashMap::new();
@@ -568,9 +552,10 @@ mod tests_ttt {
         let zobrist_constants = TicTacToeZobrist {};
 
         let mut ttable = HashMap::new();
-        let legal_moves = Vec::new();
+        let engine = TicTacToeEngine::default();
+        let legal_moves = engine.get_move_ordering_array();
         assert_eq!(
-            (0, 0, 4, true),
+            (0, 0, 0, true),
             alpha_beta_search(
                 &mut ttt_board,
                 10,
@@ -600,59 +585,8 @@ mod tests_ttt {
             ttt_board.make_move(a_move, &zobrist_constants);
         }
 
-        assert_eq!(ttt_board.display(), "OOX\nXXO\nOXX");
-    }
-
-    #[test]
-    fn alpha_beta_hash_test_3() {
-        let mut invalid_count = 0;
-        let mut valid_count = 0;
-        let mut ttable = HashMap::new();
-        let legal_moves = Vec::new();
-        let zobrist_constants = TicTacToeZobrist {};
-
-        for side in &[true, false] {
-            for xbb in (0..512).rev() {
-                for obb in (0..512).rev() {
-                    let mut init_board = TicTacToeState {
-                        xbb,
-                        obb,
-                        x_to_move: *side,
-                    };
-                    if init_board.is_valid() {
-                        valid_count += 1;
-
-                        while (init_board.get_legal_moves(&legal_moves).len() > 0)
-                            && (init_board.get_win_state() == GameResult::Unresolved)
-                        {
-                            let (_board_val, _board_upper, move_index, _found_terminal) =
-                                alpha_beta_search(
-                                    &mut init_board,
-                                    10,
-                                    i8::MIN,
-                                    i8::MAX,
-                                    &mut ttable,
-                                    &legal_moves,
-                                    &zobrist_constants,
-                                );
-                            let a_move = GameMove {
-                                move_index,
-                                x_to_move: init_board.x_to_move,
-                            };
-                            //            eprintln!("board:\n{}\nnext move:{:?}",ttt_board.display(),a_move);
-                            assert_eq!(true, init_board.is_valid());
-
-                            init_board.make_move(a_move, &zobrist_constants);
-                        }
-                    } else {
-                        invalid_count += 1;
-                    }
-                }
-            }
-        }
-        assert_eq!(28036, ttable.len());
-        assert_eq!(484922, invalid_count);
-        assert_eq!(39366, valid_count);
+        assert_eq!(ttt_board.get_win_state(), GameResult::Tie);
+        // assert_eq!(ttt_board.display(), "OOX\nXXO\nOXX");
     }
 
     #[test]
@@ -664,26 +598,33 @@ mod tests_ttt {
             x_to_move: true,
         };
         let zobrist_constants = TicTacToeZobrist {};
+        let engine = TicTacToeEngine::default();
+        let legal_moves_general = engine.get_move_ordering_array();
 
         fn hash_successors(
             a_board: &mut TicTacToeState,
             visited_set: &mut HashSet<u32>,
             zobrist_constants: &TicTacToeZobrist,
+            legal_moves: &[Vec<GameMove>],
         ) {
             let this_hash = a_board.hash_val();
-            let legal_moves = Vec::new();
             visited_set.insert(this_hash);
 
             if a_board.get_win_state() == GameResult::Unresolved {
-                let successors = a_board.get_legal_moves(&legal_moves);
+                let successors = a_board.get_legal_moves(legal_moves);
                 for each_move in &successors {
                     let an_unmake = a_board.make_move(*each_move, &zobrist_constants);
-                    hash_successors(a_board, visited_set, zobrist_constants);
+                    hash_successors(a_board, visited_set, zobrist_constants, legal_moves);
                     a_board.unmake_move(an_unmake);
                 }
             }
         }
-        hash_successors(&mut init_board, &mut visited, &zobrist_constants);
+        hash_successors(
+            &mut init_board,
+            &mut visited,
+            &zobrist_constants,
+            &legal_moves_general,
+        );
         assert_eq!(5478, visited.len());
     }
 
@@ -697,26 +638,40 @@ mod tests_ttt {
         };
         let zobrist_constants = TicTacToeZobrist {};
 
+        let engine = TicTacToeEngine::default();
+        let legal_moves_general = engine.get_move_ordering_array();
         fn hash_paths(
             hash_base: u128,
             mut a_board: &mut TicTacToeState,
             mut visited_set: &mut HashSet<u128>,
             zobrist_constants: &TicTacToeZobrist,
+            legal_moves: &[Vec<GameMove>],
         ) {
             //            eprintln!("hash base: {}", hash_base);
-            let legal_moves = Vec::new();
             visited_set.insert(hash_base);
             if a_board.get_win_state() == GameResult::Unresolved {
-                let successors = a_board.get_legal_moves(&legal_moves);
+                let successors = a_board.get_legal_moves(legal_moves);
                 for each_move in &successors {
                     let new_base = (hash_base << 8) + (each_move.move_index as u128);
                     let unmake_move = a_board.make_move(*each_move, &zobrist_constants);
-                    hash_paths(new_base, &mut a_board, &mut visited_set, zobrist_constants);
+                    hash_paths(
+                        new_base,
+                        &mut a_board,
+                        &mut visited_set,
+                        zobrist_constants,
+                        legal_moves,
+                    );
                     a_board.unmake_move(unmake_move);
                 }
             }
         }
-        hash_paths(1, &mut init_board, &mut paths, &zobrist_constants);
+        hash_paths(
+            1,
+            &mut init_board,
+            &mut paths,
+            &zobrist_constants,
+            &legal_moves_general,
+        );
         assert_eq!(549946, paths.len());
     }
 
@@ -730,28 +685,42 @@ mod tests_ttt {
         };
 
         let zobrist_constants = TicTacToeZobrist {};
+        let engine = TicTacToeEngine::default();
+        let legal_moves_general = engine.get_move_ordering_array();
 
         fn hash_paths(
             hash_base: u128,
             mut a_board: &mut TicTacToeState,
             mut visited_set: &mut HashSet<u128>,
             zobrist_constants: &TicTacToeZobrist,
+            legal_moves: &[Vec<GameMove>],
         ) {
             //            eprintln!("hash base: {}", hash_base);
-            let legal_moves = Vec::new();
             if a_board.get_win_state() == GameResult::Unresolved {
                 let successors = a_board.get_legal_moves(&legal_moves);
                 for each_move in successors.iter() {
                     let new_base = (hash_base << 8) + (each_move.move_index as u128);
                     let unmake_move = a_board.make_move(*each_move, &zobrist_constants);
-                    hash_paths(new_base, &mut a_board, &mut visited_set, zobrist_constants);
+                    hash_paths(
+                        new_base,
+                        &mut a_board,
+                        &mut visited_set,
+                        zobrist_constants,
+                        legal_moves,
+                    );
                     a_board.unmake_move(unmake_move);
                 }
             } else {
                 visited_set.insert(hash_base);
             }
         }
-        hash_paths(1, &mut init_board, &mut paths, &zobrist_constants);
+        hash_paths(
+            1,
+            &mut init_board,
+            &mut paths,
+            &zobrist_constants,
+            &legal_moves_general,
+        );
         assert_eq!(255168, paths.len());
     }
 }

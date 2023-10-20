@@ -1,6 +1,6 @@
-use rand::distributions::Standard;
+use rand::distributions::{Distribution, Uniform};
 use rand::{rngs, Rng, SeedableRng};
-use uttt::ttt_trait_solving::{TicTacToeEngine, REACHABLE_BOARD_COUNT};
+use uttt::ttt_trait_solving::TicTacToeEngine;
 
 fn main() {
     // game loop
@@ -24,15 +24,17 @@ fn main() {
     let mut node_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> =
         HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder {});
     eprintln!("entering main2");
-    let engine = TicTacToeEngine::<REACHABLE_BOARD_COUNT>::new();
+    let engine = TicTacToeEngine::new();
     eprintln!("entering main3");
     let legal_moves = engine.get_move_ordering_array();
     eprintln!("entering main4");
 
     let rand_generation = time::Instant::now();
     let random_indices = {
-        let mut seeded = rngs::StdRng::seed_from_u64(0);
-        let temporary_buffer: Vec<u16> = seeded.sample_iter(&Standard).take(15_000_000).collect();
+        let seeded = rngs::StdRng::seed_from_u64(0);
+        let uniform_range = Uniform::from(0..u16::MAX);
+        let temporary_buffer: Vec<u16> =
+            uniform_range.sample_iter(seeded).take(15_000_000).collect();
         // seeded.fill(&mut temporary_buffer);
 
         temporary_buffer

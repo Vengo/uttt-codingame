@@ -1,6 +1,6 @@
 use rand::distributions::Standard;
 use rand::{rngs, Rng, SeedableRng};
-use uttt::ttt_trait_solving::TicTacToeEngine;
+use uttt::ttt_trait_solving::{TicTacToeEngine, REACHABLE_BOARD_COUNT};
 
 fn main() {
     // game loop
@@ -24,7 +24,7 @@ fn main() {
     let mut node_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> =
         HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder {});
     eprintln!("entering main2");
-    let engine = TicTacToeEngine::new();
+    let engine = TicTacToeEngine::<REACHABLE_BOARD_COUNT>::new();
     eprintln!("entering main3");
     let legal_moves = engine.get_move_ordering_array();
     eprintln!("entering main4");

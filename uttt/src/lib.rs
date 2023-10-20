@@ -1,4 +1,4 @@
-use crate::ttt_trait_solving::TicTacToeEngine;
+// use crate::ttt_trait_solving::TicTacToeEngine;
 
 pub mod game_solving {
     use std::cmp::{max, min, Ordering};
@@ -528,36 +528,36 @@ pub mod ttt_trait_solving {
     const MOVE_ORDERING: [u8; 9] = [4, 0, 2, 6, 3, 5, 8, 1, 7];
     const CAT: u16 = (1 << 9) - 1;
 
-    const REACHABLE_BOARD_COUNT: usize = 18_753; // At most 3**9=19683 boards should exist
-                                                 // 18_753 is the number of tic tac toe boards reachable from the initial position without
-                                                 //  requiring that players alternate moves (so x might move twice, then O 3 times.
+    pub const REACHABLE_BOARD_COUNT: usize = 18_753; // At most 3**9=19683 boards should exist
+                                                     // 18_753 is the number of tic tac toe boards reachable from the initial position without
+                                                     //  requiring that players alternate moves (so x might move twice, then O 3 times.
 
     #[derive(Debug)]
-    pub struct TicTacToeEngine {
+    pub struct TicTacToeEngine<const reachable_boards: usize> {
         /// On approaching this project again, it feels like it would be useful to have some sort of
         /// an object to store state related to game search, especially when it comes to handling
         /// stuff like converting to and from IDs, storing computed search results (which will be
         /// more relevant for ultimate tic tac toe since it's actually mildly complicated), and
         /// maybe other little bits of state.
         ///
-        boards: [TicTacToeBoard; REACHABLE_BOARD_COUNT],
+        boards: [TicTacToeBoard; reachable_boards],
         board_to_index: HashMap<TicTacToeBoard, u16>,
-        board_transitions_x_to_move: [[TicTacToeBoardId; 9]; REACHABLE_BOARD_COUNT],
-        board_transitions_o_to_move: [[TicTacToeBoardId; 9]; REACHABLE_BOARD_COUNT],
+        board_transitions_x_to_move: [[TicTacToeBoardId; 9]; reachable_boards],
+        board_transitions_o_to_move: [[TicTacToeBoardId; 9]; reachable_boards],
 
-        board_distance_to_x_win: [u8; REACHABLE_BOARD_COUNT],
-        board_distance_to_o_win: [u8; REACHABLE_BOARD_COUNT],
-        board_minimax_value_depth_o_to_move: [(i8, u8); REACHABLE_BOARD_COUNT],
-        board_minimax_value_depth_x_to_move: [(i8, u8); REACHABLE_BOARD_COUNT],
+        board_distance_to_x_win: [u8; reachable_boards],
+        board_distance_to_o_win: [u8; reachable_boards],
+        board_minimax_value_depth_o_to_move: [(i8, u8); reachable_boards],
+        board_minimax_value_depth_x_to_move: [(i8, u8); reachable_boards],
     }
 
-    impl Default for TicTacToeEngine {
+    impl<const reachable_boards: usize> Default for TicTacToeEngine<reachable_boards> {
         fn default() -> Self {
             TicTacToeEngine::new()
         }
     }
 
-    impl TicTacToeEngine {
+    impl<const reachable_boards: usize> TicTacToeEngine<reachable_boards> {
         pub fn get_board(&self, board_id: &TicTacToeBoardId) -> &TicTacToeBoard {
             self.boards.get(board_id.board_id as usize).unwrap()
         }
@@ -565,19 +565,20 @@ pub mod ttt_trait_solving {
         pub fn new() -> Self {
             // Might be better to use the builder pattern, but I'm going to do it this way!
             eprintln!("generating boards!");
-            let mut board_to_index = HashMap::with_capacity(2 * REACHABLE_BOARD_COUNT);
+            println!("generating boards!");
+            let mut board_to_index = HashMap::with_capacity(2 * reachable_boards);
             // 2*REACHABLE_BOARD_COUNT might stop a resize or two, but seems like a good bet.
-            let mut numbered_boards: [TicTacToeBoard; REACHABLE_BOARD_COUNT] =
-                [TicTacToeBoard::default(); REACHABLE_BOARD_COUNT];
-            let mut x_transitions = [[TicTacToeBoardId::default(); 9]; REACHABLE_BOARD_COUNT];
-            let mut o_transitions = [[TicTacToeBoardId::default(); 9]; REACHABLE_BOARD_COUNT];
+            let mut numbered_boards: [TicTacToeBoard; reachable_boards] =
+                [TicTacToeBoard::default(); reachable_boards];
+            let mut x_transitions = [[TicTacToeBoardId::default(); 9]; reachable_boards];
+            let mut o_transitions = [[TicTacToeBoardId::default(); 9]; reachable_boards];
             eprintln!("allocated boards!");
 
             let init_board = TicTacToeBoard { xbb: 0, obb: 0 };
             let mut board_index_to_expand = 0usize;
             let mut board_index_to_write = 1usize;
             numbered_boards[board_index_to_expand] = init_board;
-            for board_index_to_expand in 0..REACHABLE_BOARD_COUNT {
+            for board_index_to_expand in 0..reachable_boards {
                 let board: TicTacToeBoard = numbered_boards[board_index_to_expand];
                 if board.get_win_state() == GameResult::Unresolved {
                     for x_to_move in &[true, false] {
@@ -611,14 +612,12 @@ pub mod ttt_trait_solving {
                 }
             }
 
-            let mut board_distance_to_x_win = [u8::MAX; REACHABLE_BOARD_COUNT];
-            let mut board_distance_to_o_win = [u8::MAX; REACHABLE_BOARD_COUNT];
-            let mut board_minimax_value_depth_x_to_move =
-                [(i8::MIN, u8::MAX); REACHABLE_BOARD_COUNT];
-            let mut board_minimax_value_depth_o_to_move =
-                [(i8::MAX, u8::MAX); REACHABLE_BOARD_COUNT];
+            let mut board_distance_to_x_win = [u8::MAX; reachable_boards];
+            let mut board_distance_to_o_win = [u8::MAX; reachable_boards];
+            let mut board_minimax_value_depth_x_to_move = [(i8::MIN, u8::MAX); reachable_boards];
+            let mut board_minimax_value_depth_o_to_move = [(i8::MAX, u8::MAX); reachable_boards];
 
-            for board_index in (0..REACHABLE_BOARD_COUNT).rev() {
+            for board_index in (0..reachable_boards).rev() {
                 let board_id = TicTacToeBoardId {
                     board_id: board_index as u16,
                 };
@@ -823,7 +822,7 @@ pub mod ttt_trait_solving {
 
     pub struct TicTacToeZobrist {
         //I'm not ACTUALLY implementing Zobrist constants for normal tictactoe...
-    // I have to create this to match the make_move API though, so here we are!
+        // I have to create this to match the make_move API though, so here we are!
     }
 
     impl TicTacToeState {
@@ -1099,7 +1098,7 @@ pub mod ttt_trait_solving {
 
 pub mod uttt_trait_solving {
     use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult};
-    use crate::ttt_trait_solving::{TicTacToeEngine, TicTacToeState};
+    use crate::ttt_trait_solving::{TicTacToeEngine, TicTacToeState, REACHABLE_BOARD_COUNT};
     use rand::{rngs, Rng, SeedableRng};
     use std::iter::FromIterator;
 
@@ -1229,7 +1228,7 @@ pub mod uttt_trait_solving {
 
         pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
             eprintln!("making an engine");
-            let engine = TicTacToeEngine::new();
+            let engine = TicTacToeEngine::<REACHABLE_BOARD_COUNT>::new();
             eprintln!("engine made");
             engine.get_move_ordering_array()
         }
@@ -1506,6 +1505,7 @@ pub fn main() {
         advance_rollout, reverse_rollout, uct_value, AlphaBetaCompatible, GameMove, GameResult,
         IdentityHasherBuilder,
     };
+    use crate::ttt_trait_solving::{TicTacToeEngine, REACHABLE_BOARD_COUNT};
     use crate::uttt_trait_solving::{parse_index_from_super_coords, UltimateTicTacToeBoard};
     use rand::distributions::{Standard, Uniform};
     use rand::{rngs, Rng, SeedableRng};
@@ -1558,7 +1558,7 @@ pub fn main() {
         // **************************************************************
         let turn_start = time::Instant::now();
         let time_limit = if turn_count == 0 {
-            engine = TicTacToeEngine::new();
+            engine = TicTacToeEngine::<REACHABLE_BOARD_COUNT>::new();
             legal_moves = engine.get_move_ordering_array();
             990_000
         } else {

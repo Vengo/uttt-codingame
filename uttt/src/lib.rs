@@ -856,7 +856,7 @@ pub mod ttt_trait_solving {
             TicTacToeBoard { xbb: 0, obb: 0 }
         }
 
-        fn display(&self) -> String {
+        pub fn display(&self) -> String {
             let mut rows = Vec::new();
             for row in 0..TTT_BOARD_WIDTH {
                 let mut row_rep = String::new();
@@ -1109,7 +1109,7 @@ pub mod uttt_trait_solving {
     const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
     const CAT: u16 = (1 << 9) - 1;
     const ZOBRIST_SEED: u64 = 0x95_62_9A_0C_B8_00_E9_41u64; //generated from random.org
-    const HASH_DEFAULT: u64 = 0x8e_6c_65_b8_2e_fd_36_70u64; //generated from random.org
+    pub const HASH_DEFAULT: u64 = 0x8e_6c_65_b8_2e_fd_36_70u64; //generated from random.org
 
     #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub struct UltimateTicTacToeBoard {

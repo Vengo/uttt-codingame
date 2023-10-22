@@ -1,19 +1,21 @@
+extern crate uttt;
+
 use rand::distributions::{Distribution, Uniform};
 use rand::{rngs, Rng, SeedableRng};
+use std::collections::HashMap;
+use std::time;
+use uttt::game_solving::{
+    advance_rollout, reverse_rollout, AlphaBetaCompatible, GameResult, IdentityHasherBuilder,
+    UmctsNode,
+};
 use uttt::ttt_trait_solving::TicTacToeEngine;
+use uttt::uttt_trait_solving::UltimateTicTacToeBoard;
 
 fn main() {
     // game loop
     // use std::io::stdin;
-    use uttt::game_solving::{
-        advance_rollout, reverse_rollout, AlphaBetaCompatible, GameResult, IdentityHasherBuilder,
-        UmctsNode,
-    };
-    use uttt::uttt_trait_solving::UltimateTicTacToeBoard;
 
     eprintln!("entering main");
-    use std::collections::HashMap;
-    use std::time;
 
     let mut turn_count = 0;
     let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
@@ -51,9 +53,7 @@ fn main() {
         // **************************************************************
         let turn_start = time::Instant::now();
         eprintln!("started turn {}", turn_count);
-        let time_limit = if turn_count == 0 {
-            998_000
-        } else if turn_count == 1 {
+        let time_limit = if (turn_count == 0) || (turn_count == 1) {
             998_000
         } else {
             98_000

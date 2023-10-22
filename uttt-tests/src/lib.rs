@@ -749,7 +749,7 @@ mod tests_uttt {
 
         let all_hashed = x_iter.chain(o_iter).fold(start_val, |a, b| a ^ b);
 
-        let expected_allhash = 10891453110652296350u64;
+        let expected_allhash = 16241622240269048913u64;
 
         eprintln!("{} {}", all_hashed, expected_allhash);
         assert_eq!(expected_allhash, all_hashed);

@@ -273,6 +273,40 @@ fn uttt_alpha_beta_zero_window(c: &mut Criterion) {
     });
 }
 
+fn uttt_alpha_beta_midgame(c: &mut Criterion) {
+    let uttt_board = UltimateTicTacToeBoard {
+        xbb: [1, 116, 0, 68, 17, 257, 288, 33, 260],
+        x_supers: 2,
+        obb: [300, 0, 7, 0, 258, 162, 66, 0, 200],
+        o_supers: 5,
+        last_super_index: 7,
+        x_to_move: true,
+        hash_state: 8888120714582935863
+    };
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+
+    let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
+
+    const COMPETITIVE_AB_DEPTH: u8 = 8;
+
+    c.bench_function("uttt alpha beta midgame search", move |b| {
+        b.iter(|| {
+            let mut a_board = black_box(uttt_board.clone());
+            let mut transposition_table = HashMap::new();
+
+            let (best_value, val_upper, best_action, found_terminal) = alpha_beta_search(
+                &mut a_board,
+                COMPETITIVE_AB_DEPTH,
+                i8::MIN,
+                i8::MAX,
+                &mut transposition_table,
+                &legal_moves,
+                &zobrist_constants,
+            );
+        })
+    });
+
+}
 fn uttt_alpha_beta_big_window(c: &mut Criterion) {
     let uttt_board = UltimateTicTacToeBoard {
         xbb: [0, 0, 0, 0, 4, 0, 0, 0, 0],
@@ -465,6 +499,6 @@ fn uttt_hash_test(c: &mut Criterion) {
 //     uttt_get_subboard_moves,
 //     uttt_hash_test
 // );
-criterion_group!(uttt_benches, uttt_alpha_beta_big_window,);
+criterion_group!(uttt_benches, uttt_alpha_beta_big_window, uttt_alpha_beta_midgame);
 
 criterion_main!(uttt_benches);

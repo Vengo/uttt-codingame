@@ -139,7 +139,7 @@ fn calculate_turn(
     use uttt::uttt_trait_solving::parse_index_from_super_coords;
     let mut rollout_count = 0;
 
-    let best_move_index = match (opponent_row, opponent_col) {
+    let best_move = match (opponent_row, opponent_col) {
         (-1, -1) => {
             let default_first = GameMove {
                 move_index: 40,
@@ -226,7 +226,7 @@ fn calculate_turn(
                 }
             }
 
-            40
+            default_first
         }
         (row, col) => {
             let opp_move_index = parse_index_from_super_coords(row as u8, col as u8);
@@ -343,9 +343,12 @@ fn calculate_turn(
                 }
                 eprintln!();
             }
-            best_move
+            *best_move
         }
     };
+
+    let best_move_index = best_move.move_index;
+
     let best_subboard_index = best_move_index / 9;
     let best_sub_square_index = best_move_index % 9;
 

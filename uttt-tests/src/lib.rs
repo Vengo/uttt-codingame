@@ -1605,6 +1605,42 @@ mod tests_uttt {
     }
 
     #[test]
+    fn alpha_beta_test_midgame() {
+        let mut uttt_board = UltimateTicTacToeBoard {
+            xbb: [1, 116, 0, 68, 17, 257, 288, 33, 260],
+            x_supers: 2,
+            obb: [300, 0, 7, 0, 258, 162, 66, 0, 200],
+            o_supers: 5,
+            last_super_index: 7,
+            x_to_move: true,
+            hash_state: 8888120714582935863
+        };
+        let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+        let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
+        let mut ttable = HashMap::new();
+        const COMPETITIVE_AB_DEPTH: u8 = 8;
+        let search_start = time::Instant::now();
+        let (alpha, beta, the_move, other) = alpha_beta_search(
+            &mut uttt_board,
+            6,
+            i8::MIN,
+            i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
+        );
+
+        eprintln!("search results were: {}, {}, {}, {}",alpha, beta, the_move, other);
+        eprintln!("ttable size: {}", ttable.len());
+        eprintln!(
+            "elapsed search time: {}",
+            search_start.elapsed().as_micros()
+        );
+        assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
+        assert_eq!(1,2, "intentional failure");
+    }
+
+    #[test]
     fn constant_move_order_test() {
         // 256 128 64 32 16 8 4 2 1
         // 1 2 4 8 16 32 64 128 256

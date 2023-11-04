@@ -45,6 +45,20 @@ fn main() {
         rand_generation.elapsed().as_micros()
     );
 
+    uttt_board.make_move(GameMove{ x_to_move: true, move_index: 40 ,},&zobrist_constants);
+    let turn_start = time::Instant::now();
+    let time_limit = 998_000;
+    calculate_turn(
+        &mut uttt_board,
+        &zobrist_constants,
+        &mut unmove_queue,
+        &mut node_store,
+        &legal_moves,
+        turn_start,
+        time_limit
+    );
+    turn_count+=1;
+
     while uttt_board.get_win_state() ==GameResult::Unresolved {
         // ***************************************************************
         // setting start of turn timer
@@ -53,7 +67,7 @@ fn main() {
         let turn_start = time::Instant::now();
         eprintln!("\n====");
         eprintln!("started turn {}", turn_count);
-        let time_limit = if (turn_count == 0) || (turn_count == 1) {
+        let time_limit = if turn_count == 1 {
             998_000
         } else {
             98_000
@@ -68,6 +82,8 @@ fn main() {
             turn_start,
             time_limit
         );
+
+        let best_move = if turn_count!=0 {best_move} else {GameMove{ x_to_move: true, move_index: 40 }};
 
         let best_move_index = best_move.move_index;
 

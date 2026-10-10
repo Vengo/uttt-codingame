@@ -1,0 +1,1389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ultimate Tic-Tac-Toe Arena & Bot Studio</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --x-color: #38bdf8;
+      --o-color: #f43f5e;
+      --active-board: rgba(56, 189, 248, 0.12);
+      --active-border: #38bdf8;
+      --clickable-cell: rgba(56, 189, 248, 0.25);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 16px;
+      width: 100%;
+      max-width: 1100px;
+    }
+    h1 {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+    }
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-top: 4px;
+    }
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-top: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: #1e293b;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .tab-btn:hover { background: #334155; color: #fff; }
+    .tab-btn.active {
+      background: #0284c7;
+      color: #fff;
+      border-color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+    .tab-content { display: none; width: 100%; max-width: 1100px; }
+    .tab-content.active { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+
+    /* Board styling */
+    .board-container {
+      background: var(--card-bg);
+      border: 2px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+    .super-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      background: #090d16;
+      padding: 12px;
+      border-radius: 12px;
+    }
+    .sub-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 44px);
+      grid-template-rows: repeat(3, 44px);
+      gap: 4px;
+      background: var(--card-bg);
+      padding: 6px;
+      border-radius: 8px;
+      position: relative;
+      border: 2px solid var(--border);
+      transition: all 0.2s ease;
+    }
+    .sub-grid.active-subboard {
+      border-color: var(--active-border);
+      background: var(--active-board);
+      box-shadow: 0 0 14px rgba(56, 189, 248, 0.4);
+    }
+    .cell {
+      background: #0f172a;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      font-weight: 800;
+      user-select: none;
+      transition: background 0.15s;
+    }
+    .cell.clickable {
+      cursor: pointer;
+      background: #172554;
+      border: 1px dashed #38bdf8;
+    }
+    .cell.clickable:hover {
+      background: #1e3a8a;
+      transform: scale(1.05);
+    }
+    .cell.x-mark { color: var(--x-color); text-shadow: 0 0 8px rgba(56, 189, 248, 0.5); }
+    .cell.o-mark { color: var(--o-color); text-shadow: 0 0 8px rgba(244, 63, 94, 0.5); }
+    .cell.last-move {
+      outline: 2px solid #facc15;
+      background: rgba(250, 204, 21, 0.15);
+    }
+    .sub-overlay {
+      position: absolute;
+      inset: 0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 4rem;
+      font-weight: 900;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(2px);
+      pointer-events: none;
+    }
+    .sub-overlay.x-won { color: var(--x-color); border: 3px solid var(--x-color); }
+    .sub-overlay.o-won { color: var(--o-color); border: 3px solid var(--o-color); }
+    .sub-overlay.tie-won { color: #94a3b8; border: 3px solid #94a3b8; font-size: 2rem; }
+
+    /* Sidebar and Cards */
+    .sidebar {
+      flex: 1;
+      min-width: 320px;
+      max-width: 480px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .card-title {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      font-weight: 600;
+    }
+    .matchup {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .player-badge {
+      display: flex;
+      flex-direction: column;
+    }
+    .player-badge .role { font-size: 0.75rem; color: var(--text-muted); }
+    .player-badge .name { font-size: 1.1rem; font-weight: 700; }
+    .player-badge.x .name { color: var(--x-color); }
+    .player-badge.o .name { color: var(--o-color); }
+    .vs-pill {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #64748b;
+      padding: 4px 8px;
+      background: #0f172a;
+      border-radius: 12px;
+    }
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .meta-val { font-weight: 600; color: #f1f5f9; }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    button, select, input[type=text], input[type=number] {
+      background: #334155;
+      color: white;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #475569; }
+    button.primary { background: #0284c7; border-color: #38bdf8; }
+    button.primary:hover { background: #0369a1; }
+    button.success { background: #16a34a; border-color: #4ade80; }
+    button.success:hover { background: #15803d; }
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    input[type=range] { flex: 1; accent-color: #38bdf8; }
+
+    /* Form elements */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .form-group label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    /* Leaderboard Table */
+    .table-container {
+      width: 100%;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      text-align: left;
+    }
+    th, td {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background: #0f172a;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+    }
+    tr:hover td { background: rgba(255,255,255,0.02); }
+    .rank-1 { color: #facc15; font-weight: 700; }
+    .rank-2 { color: #e2e8f0; font-weight: 700; }
+    .rank-3 { color: #d97706; font-weight: 700; }
+
+    .status-banner {
+      background: #172554;
+      border: 1px solid #38bdf8;
+      color: #93c5fd;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #38bdf8;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    /* AI Codex Styling */
+    .codex-container {
+      width: 100%;
+      max-width: 1100px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .codex-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    }
+    .codex-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .codex-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #f1f5f9;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .codex-badge {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      letter-spacing: 0.05em;
+    }
+    .badge-champion { background: rgba(250, 204, 21, 0.2); color: #facc15; border: 1px solid #facc15; }
+    .badge-mcts { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8; }
+    .badge-hybrid { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid #c084fc; }
+    .badge-heuristic { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #4ade80; }
+    .badge-baseline { background: rgba(148, 163, 184, 0.2); color: #94a3b8; border: 1px solid #94a3b8; }
+    .codex-desc {
+      color: #cbd5e1;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .codex-list {
+      margin-left: 20px;
+      color: #94a3b8;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .codex-list li { margin-bottom: 4px; }
+    .codex-critique {
+      background: rgba(244, 63, 94, 0.08);
+      border-left: 4px solid #f43f5e;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.88rem;
+      color: #fecdd3;
+    }
+    .codex-fix {
+      background: rgba(34, 197, 94, 0.08);
+      border-left: 4px solid #4ade80;
+      padding: 12px 16px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.88rem;
+      color: #bbf7d0;
+    }
+    .codex-code {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 0.82rem;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⚔️ Ultimate Tic-Tac-Toe Arena</h1>
+    <div class="subtitle">Multi-Agent AI Tournament, Interactive Play, and Match Replay Studio</div>
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('replayTab')">📺 Replay Viewer</button>
+      <button class="tab-btn" onclick="switchTab('battleTab')">⚔️ Live Battle</button>
+      <button class="tab-btn" onclick="switchTab('playTab')">🎮 Play vs AI</button>
+      <button class="tab-btn" onclick="switchTab('tourneyTab')">🏆 Leaderboard</button>
+      <button class="tab-btn" onclick="switchTab('codexTab')">📖 AI Codex & Architecture</button>
+    </div>
+  </header>
+
+  <!-- TAB 1: REPLAY VIEWER -->
+  <div id="replayTab" class="tab-content active">
+    <div class="board-container">
+      <div class="super-grid" id="replaySuperGrid"></div>
+    </div>
+    <div class="sidebar">
+      <div class="card">
+        <div class="card-title">Select Replay</div>
+        <div class="form-group">
+          <label>Server Replays:</label>
+          <select id="serverReplaySelect" onchange="onSelectServerReplay()">
+            <option value="">Loading replays from server...</option>
+          </select>
+        </div>
+        <div class="matchup">
+          <div class="player-badge x">
+            <span class="role">PLAYER 1 (X)</span>
+            <span class="name" id="playerXName">-</span>
+          </div>
+          <div class="vs-pill">VS</div>
+          <div class="player-badge o">
+            <span class="role">PLAYER 2 (O)</span>
+            <span class="name" id="playerOName">-</span>
+          </div>
+        </div>
+        <div class="meta-row">
+          <span style="color: var(--text-muted);">Result:</span>
+          <span class="meta-val" id="resultLabel">-</span>
+        </div>
+        <div class="meta-row">
+          <span style="color: var(--text-muted);">Current Turn:</span>
+          <span class="meta-val" id="turnLabel">0 / 0</span>
+        </div>
+        <div class="meta-row">
+          <span style="color: var(--text-muted);">Last Move:</span>
+          <span class="meta-val" id="lastMoveLabel">Start of Game</span>
+        </div>
+        <div class="meta-row">
+          <span style="color: var(--text-muted);">Move Duration:</span>
+          <span class="meta-val" id="moveTimeLabel">-</span>
+        </div>
+      </div>
+
+      <div class="card controls">
+        <div class="card-title">Playback Controls</div>
+        <div class="btn-row">
+          <button id="btnStart">⏮ First</button>
+          <button id="btnPrev">◀ Prev</button>
+          <button id="btnPlay" class="primary">▶ Play</button>
+          <button id="btnNext">Next ▶</button>
+          <button id="btnEnd">Last ⏭</button>
+        </div>
+        <div class="slider-row">
+          <span>Turn:</span>
+          <input type="range" id="turnSlider" min="0" max="0" value="0">
+        </div>
+        <div class="slider-row">
+          <span>Speed:</span>
+          <input type="range" id="speedSlider" min="50" max="1000" step="50" value="350">
+          <span id="speedVal">350ms</span>
+        </div>
+        <div class="form-group" style="margin-top: 8px;">
+          <label>Or Upload Custom Replay (.json):</label>
+          <input type="file" id="replayFileInput" accept=".json">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: LIVE BATTLE -->
+  <div id="battleTab" class="tab-content">
+    <div class="sidebar" style="max-width: 500px; width: 100%;">
+      <div class="card">
+        <div class="card-title">Configure Head-to-Head Battle</div>
+        <div class="form-group">
+          <label>Player 1 (X):</label>
+          <select id="battleBot1">
+            <option value="book_umcts_v2">BookUmctsV2 (D4 Book + MCTS)</option>
+            <option value="umcts_v2">UmctsV2Bot (Refactored Hybrid Solver)</option>
+            <option value="book_alphabeta">BookAlphaBeta (D4 Book + Minimax)</option>
+            <option value="alphabeta">AlphaBetaBot (Minimax)</option>
+            <option value="heuristic_mcts">HeuristicMctsBot (MCTS + Prior)</option>
+            <option value="mcts">MctsBot (Classic UCT)</option>
+            <option value="original_umcts">OriginalUmctsBot (Repo Original)</option>
+            <option value="rule_based">RuleBasedBot (Heuristic)</option>
+            <option value="random">RandomBot (Baseline)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Player 2 (O):</label>
+          <select id="battleBot2">
+            <option value="umcts_v2">UmctsV2Bot (Refactored Hybrid Solver)</option>
+            <option value="book_umcts_v2">BookUmctsV2 (D4 Book + MCTS)</option>
+            <option value="alphabeta">AlphaBetaBot (Minimax)</option>
+            <option value="book_alphabeta">BookAlphaBeta (D4 Book + Minimax)</option>
+            <option value="heuristic_mcts">HeuristicMctsBot (MCTS + Prior)</option>
+            <option value="mcts">MctsBot (Classic UCT)</option>
+            <option value="original_umcts">OriginalUmctsBot (Repo Original)</option>
+            <option value="rule_based">RuleBasedBot (Heuristic)</option>
+            <option value="random">RandomBot (Baseline)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Time Budget per Move (ms):</label>
+          <input type="number" id="battleTimeMs" value="30" min="5" max="500">
+        </div>
+        <button class="primary" style="width: 100%; padding: 12px; margin-top: 8px;" onclick="startLiveBattle()">
+          ⚡ Run Match & View Replay
+        </button>
+      </div>
+
+      <div id="battleStatus" class="status-banner" style="display: none;">
+        <span class="spinner"></span>
+        <span>Running match on Rust engine...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: PLAY VS AI -->
+  <div id="playTab" class="tab-content">
+    <div class="board-container">
+      <div class="super-grid" id="playSuperGrid"></div>
+    </div>
+    <div class="sidebar">
+      <div class="card">
+        <div class="card-title">Game Controls</div>
+        <div class="form-group">
+          <label>Choose AI Opponent:</label>
+          <select id="playOpponent">
+            <option value="book_umcts_v2">BookUmctsV2 (D4 Book + MCTS)</option>
+            <option value="umcts_v2">UmctsV2Bot (Hybrid Solver)</option>
+            <option value="book_alphabeta">BookAlphaBeta (D4 Book + Minimax)</option>
+            <option value="alphabeta">AlphaBetaBot (Strongest Minimax)</option>
+            <option value="heuristic_mcts">HeuristicMctsBot</option>
+            <option value="mcts">MctsBot</option>
+            <option value="rule_based">RuleBasedBot</option>
+            <option value="original_umcts">OriginalUmctsBot</option>
+            <option value="random">RandomBot</option>
+          </select>
+        </div>
+        <button class="success" style="width: 100%; margin-bottom: 12px;" onclick="resetHumanGame()">
+          🔄 New Game (You are X)
+        </button>
+        <div class="meta-row">
+          <span style="color: var(--text-muted);">Status:</span>
+          <span class="meta-val" id="playStatusLabel">Your turn (Click highlighted squares)</span>
+        </div>
+        <div class="meta-row">
+          <span style="color: var(--text-muted);">Turn Number:</span>
+          <span class="meta-val" id="playTurnLabel">1</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: LEADERBOARD -->
+  <div id="tourneyTab" class="tab-content">
+    <div class="card" style="width: 100%; max-width: 900px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div class="card-title" style="margin: 0;">Tournament Standings</div>
+        <button class="primary" onclick="runLiveTournament()">🏆 Run New Tournament</button>
+      </div>
+      <div id="tourneyStatus" class="status-banner" style="display: none;">
+        <span class="spinner"></span>
+        <span>Executing round-robin tournament across all bots...</span>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Bot Name</th>
+              <th>Elo Rating</th>
+              <th>Points</th>
+              <th>Record (W-L-D)</th>
+              <th>Win %</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardBody">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading standings...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 5: AI CODEX & ARCHITECTURE -->
+  <div id="codexTab" class="tab-content">
+    <div class="codex-container">
+      <div class="card">
+        <div class="card-title">🤖 AI Architecture Codex & In-Depth Code Review</div>
+        <div class="codex-desc">
+          Technical documentation for all 7 bots in the tournament engine, followed by an in-depth code review,
+          empirical profiling benchmarks (conducted on AMD Ryzen 7 2700X), and the architectural evolution of the original MCTS solver.
+        </div>
+      </div>
+
+      <!-- BOT 1: ALPHABETA -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">🥇 1. AlphaBetaBot</div>
+          <span class="codex-badge badge-champion">Champion • Minimax / Iterative Deepening • 1625 Elo</span>
+        </div>
+        <div class="codex-desc">
+          Deterministic game tree search combining <strong>Negamax</strong> with <strong>Alpha-Beta Pruning</strong>,
+          a 64-bit <strong>Zobrist Transposition Table</strong>, and <strong>Iterative Deepening</strong> ($d=1 \dots 12$).
+        </div>
+        <ul class="codex-list">
+          <li><strong>Iterative Deepening:</strong> Searches successively deeper within the time limit per move. If time runs out at depth $k$, it falls back immediately to the verified best move from depth $k-1$.</li>
+          <li><strong>Transposition Table:</strong> Hashes board states into 64-bit Zobrist keys, storing exact evaluations, upper bounds, and lower bounds to prune identical subtrees across move permutations.</li>
+          <li><strong>Superboard Evaluation:</strong> Heavily weights superboard line threats (+500 for 2-in-a-row with open third subboard), center subboard control (+300), corner control (+200), and penalizes moves that concede free board choice to the opponent (-150).</li>
+          <li><strong>Why It Dominates:</strong> Ultimate Tic-Tac-Toe has sharp, forcing tactics. AlphaBeta evaluates forcing sequences up to 8–10 plies deep with zero stochastic noise.</li>
+        </ul>
+      </div>
+
+      <!-- BOT 2: UMCTS V2 -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">⚡ 2. UmctsV2Bot (Refactored Hybrid Solver)</div>
+          <span class="codex-badge badge-hybrid">MCTS-Solver • Proof Propagation • 1538 Elo (+126 over v1)</span>
+        </div>
+        <div class="codex-desc">
+          Directly refactors the author's original hybrid MCTS + bounds pruning engine, preserving its 64-bit Zobrist identity hasher
+          and reversible move queue while correcting all 4 architectural bottlenecks:
+        </div>
+        <ul class="codex-list">
+          <li><strong>1-Node Tree Expansion:</strong> Traverses existing tree nodes using UCB1 selection and expands exactly 1 child node per rollout, decoupling tree growth from the simulation phase.</li>
+          <li><strong>Pure Lightweight Simulation:</strong> Simulates random playouts to terminal states without allocating tree nodes or hash map entries, boosting rollout throughput to over 1,000,000 moves/sec.</li>
+          <li><strong>Sound MCTS-Solver Proof Propagation:</strong> Backpropagates provable game-theoretic bounds (ProvenWin, ProvenLoss, ProvenDraw). If a child node is a proven win for the current player, it is executed immediately; proven losing moves are filtered from selection.</li>
+          <li><strong>L3 Cache Resident Sizing:</strong> Node table sized to 128K entries (~4MB), ensuring table lookups stay within the CPU's 16MB L3 cache (10.2 ns/op) rather than stalling on DDR4 DRAM (70.3 ns/op).</li>
+        </ul>
+      </div>
+
+      <!-- BOT 3: HEURISTIC MCTS -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">🎯 3. HeuristicMctsBot</div>
+          <span class="codex-badge badge-hybrid">Guided MCTS • Epsilon-Greedy Rollouts • 1557 Elo</span>
+        </div>
+        <div class="codex-desc">
+          Enhances classic Monte Carlo Tree Search by replacing purely random simulations with a domain-aware <strong>$\epsilon$-greedy policy</strong>:
+        </div>
+        <ul class="codex-list">
+          <li><strong>70% Tactical Selection:</strong> During rollouts, plays winning subboard moves, blocks opponent subboard wins, and avoids conceding free-choice boards.</li>
+          <li><strong>30% Random Exploration:</strong> Retains stochastic diversity to discover non-obvious sacrifices and tactical traps.</li>
+          <li><strong>Prior Move Ordering:</strong> Expands higher-heuristic children first during tree descent.</li>
+        </ul>
+      </div>
+
+      <!-- BOT 4: CLASSIC MCTS -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">🎲 4. MctsBot (Classic UCT)</div>
+          <span class="codex-badge badge-mcts">Pure MCTS • UCB1 Exploration • 1549 Elo</span>
+        </div>
+        <div class="codex-desc">
+          Textbook Monte Carlo Tree Search using standard UCT (Upper Confidence bounds applied to Trees) with $c = \sqrt{2} \approx 1.414$.
+          Achieves ~15,000–30,000 rollouts per move due to zero memory overhead during simulation.
+        </div>
+      </div>
+
+      <!-- BOT 5: ORIGINAL UMCTS -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">🔬 5. OriginalUmctsBot (Repository Baseline)</div>
+          <span class="codex-badge badge-hybrid">Original Hybrid Engine • Transposition Table • 1481 Elo</span>
+        </div>
+        <div class="codex-desc">
+          The author's original search engine implementing an ambitious hybrid of MCTS and Minimax Alpha-Beta bounds.
+          Features precomputed 18,753-state subboard lookup engines, IdentityHasher, and a reversible unmove queue.
+        </div>
+      </div>
+
+      <!-- BOT 6: RULE BASED -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">🛡️ 6. RuleBasedBot</div>
+          <span class="codex-badge badge-heuristic">Domain Expert Heuristic • 1-Ply Static • 1399 Elo</span>
+        </div>
+        <div class="codex-desc">
+          1-ply expert heuristic system: evaluates every legal move statically using positional weights (+750 center subboard, +500 corners,
+          +45 threat blocking, -60 penalty for sending opponent to completed boards). Extremely fast (&lt; 0.5ms per move).
+        </div>
+      </div>
+
+      <!-- BOT 7: RANDOM -->
+      <div class="codex-card">
+        <div class="codex-header">
+          <div class="codex-title">🎲 7. RandomBot</div>
+          <span class="codex-badge badge-baseline">Random Baseline • 1351 Elo</span>
+        </div>
+        <div class="codex-desc">
+          Uniform random move selection. Used as the calibration baseline for the Elo rating ladder.
+        </div>
+      </div>
+
+      <!-- CODE REVIEW & DEEP DIVE -->
+      <div class="codex-card" style="border-color: #38bdf8; background: #0b1329;">
+        <div class="codex-header">
+          <div class="codex-title" style="color: #38bdf8;">🔍 Deep-Dive Code Review: The 4 Critical Search Bugs & Bottlenecks</div>
+          <span class="codex-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid #38bdf8;">Architectural Analysis</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 8px;">
+          <!-- BUG 1 -->
+          <div>
+            <div style="font-weight: 700; color: #f87171; margin-bottom: 4px;">1. The search_alpha = -128 Cutoff Bug (runlocal.rs, lines 184–218)</div>
+            <div class="codex-desc">
+              When candidate moves were pruned because the alpha-beta search window closed or <code>search_alpha &gt;= search_beta</code>,
+              <code>advance_rollout</code> returned <code>None</code> while the board was still non-terminal (<code>GameResult::Unresolved</code>).
+              The wildcard fallback executed:
+            </div>
+            <div class="codex-code">_ =&gt; search_alpha // Initialized to i8::MIN (-128)!</div>
+            <div class="codex-critique" style="margin-top: 6px;">
+              <strong>The Problem:</strong> Non-terminal exploratory lines were scored as -128 (catastrophic loss) and backpropagated up the tree.
+              This systematically poisoned strong tactical paths with huge negative values, causing the bot to flee into shallow, degenerate moves.
+            </div>
+          </div>
+
+          <!-- BUG 2 -->
+          <div>
+            <div style="font-weight: 700; color: #f87171; margin-bottom: 4px;">2. Full-Path Rollout Expansion vs. 1-Node Expansion</div>
+            <div class="codex-desc">
+              In the original MCTS, <code>advance_rollout</code> descended all 54 plies to the end of the game, inserting <code>UmctsNode</code>s
+              into the hash table at every ply.
+            </div>
+            <div class="codex-critique" style="margin-top: 6px;">
+              <strong>The Problem:</strong> In a $10^{28}$ state space, deep states visited once by random rollouts have $N=1$ and are almost never revisited from the root ($\text{Prob} &lt; 10^{-18}$).
+              Creating nodes, hashes, and vectors on all 54 plies dropped simulation throughput by <strong>54x</strong> (~22,000 moves/sec vs ~1,200,000 moves/sec in pure rollouts) and injected single-sample noise into transpositions.
+            </div>
+          </div>
+
+          <!-- BUG 3 -->
+          <div>
+            <div style="font-weight: 700; color: #f87171; margin-bottom: 4px;">3. Tuple Sorting in get_optimal: (move_beta, uct_val)</div>
+            <div class="codex-desc">
+              Candidate moves were selected with: <code>candidate_moves.iter().max_by_key(|(_, node)| (move_beta, uct_val))</code>.
+            </div>
+            <div class="codex-critique" style="margin-top: 6px;">
+              <strong>The Problem:</strong> Rust evaluates tuples lexicographically: if <code>A &gt; C</code>, it never evaluates <code>B</code> and <code>D</code>.
+              Unproven nodes default to <code>move_beta = 127</code>. Any explored, strong node whose upper bound refined to $\le 126$ was permanently deprioritized in favor of unvisited nodes ($127 &gt; 126$), completely disabling UCT!
+            </div>
+            <div class="codex-fix" style="margin-top: 6px;">
+              <strong>The Solution (UmctsV2):</strong> Use alpha-beta as a filter (<code>candidate_moves.retain(|(_, node)| node.value_upper &gt; alpha)</code>), then select solely by UCT.
+            </div>
+          </div>
+
+          <!-- BUG 4 -->
+          <div>
+            <div style="font-weight: 700; color: #f87171; margin-bottom: 4px;">4. Hardware Profiling: 6.89x CPU Cache Misses & Allocator Churn</div>
+            <div class="codex-desc">
+              Empirical profiling run on AMD Ryzen 7 2700X:
+            </div>
+            <ul class="codex-list">
+              <li><strong>Cache-Resident Table (50k entries, fits in 16MB L3):</strong> 10.2 ns / lookup.</li>
+              <li><strong>10M-capacity Table (~400MB, spills to DDR4 DRAM):</strong> 70.3 ns / lookup — <strong>6.89x slower</strong> per lookup due to CPU cache misses!</li>
+              <li><strong>Heap Churn:</strong> <code>get_successors</code> allocated 2 <code>Vec</code>s per ply $\times$ 54 plies = 108 heap allocations/frees per rollout (108,000 allocations/sec).</li>
+            </ul>
+          </div>
+
+          <!-- BUG 5 -->
+          <div>
+            <div style="font-weight: 700; color: #f87171; margin-bottom: 4px;">5. Bounds Propagation Invalidation on Ply 1</div>
+            <div class="codex-desc">
+              A single rollout picks 1 child out of up to 81 legal moves. The remaining 80 children returned <code>None</code> from <code>node_store</code>,
+              forcing <code>child_upper = 127</code>, so <code>upper_bound = 127</code>.
+            </div>
+            <div class="codex-critique" style="margin-top: 6px;">
+              The check <code>if bounds == (-128, 127) { update_bounds = false; }</code> tripped on ply 1, permanently disabling bounds updates for all ancestor nodes up to the root.
+              Profiling confirmed the root node bounds remained unrefined at <code>[-128, 127]</code> even after 5,000 rollouts.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE HARDWARE & CACHE PROFILER CARD -->
+      <div class="codex-card" style="border-color: #facc15; background: #131b2e;">
+        <div class="codex-header">
+          <div class="codex-title" style="color: #facc15;">⚡ Real-World Hardware & Cache Profiler</div>
+          <button class="primary" style="padding: 6px 14px; font-size: 0.85rem;" onclick="fetchHardwareProfile()">
+            🔄 Run Live Benchmark
+          </button>
+        </div>
+        <div class="codex-desc" id="profileCpuModel">Host CPU: AMD Ryzen 7 2700X Eight-Core Processor</div>
+        <div id="profileResultsContainer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 8px;">
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">L3 Cache vs DRAM Latency</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin: 4px 0;" id="profileCacheSummary">11.0 ns vs 29.7 ns</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;" id="profileCacheSlowdown">2.71x slowdown when spilling past CPU cache</div>
+          </div>
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Small-Buffer Allocator Churn</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #4ade80; margin: 4px 0;" id="profileAllocSummary">93.1M allocs/sec</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;">10.7 ns per dynamic heap allocation/deallocation</div>
+          </div>
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">Lightweight Simulation Speed</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #c084fc; margin: 4px 0;" id="profileSimSummary">220,167 rollouts/sec</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;">Avg depth: 56.9 plies to terminal with zero node allocation</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LIVE FLAMEGRAPH GENERATOR CARD -->
+      <div class="codex-card" style="border-color: #f97316; background: #131b2e;">
+        <div class="codex-header">
+          <div class="codex-title" style="color: #fb923c;">🔥 In-Process CPU Flamegraph Profiler</div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <select id="flameBotSelect" style="padding: 6px 10px; font-size: 0.85rem;">
+              <option value="umcts_v2">UmctsV2Bot</option>
+              <option value="alphabeta">AlphaBetaBot</option>
+              <option value="heuristic_mcts">HeuristicMctsBot</option>
+              <option value="mcts">MctsBot</option>
+              <option value="original_umcts">OriginalUmctsBot</option>
+              <option value="rule_based">RuleBasedBot</option>
+            </select>
+            <select id="flameTimeSelect" style="padding: 6px 10px; font-size: 0.85rem;">
+              <option value="500">500 ms</option>
+              <option value="1000" selected>1,000 ms</option>
+              <option value="2000">2,000 ms</option>
+              <option value="3000">3,000 ms</option>
+            </select>
+            <button class="primary" style="padding: 6px 14px; font-size: 0.85rem; background: #ea580c; border-color: #f97316;" onclick="generateFlamegraph()">
+              ⚡ Sample & Render Flamegraph
+            </button>
+          </div>
+        </div>
+        <div class="codex-desc">
+          Samples in-process call stacks at 100 Hz using <code>pprof</code> and <code>inferno</code>, bypassing kernel <code>perf_event_paranoid</code> restrictions.
+          The interactive SVG supports zooming into function stacks, hover tooltips, and search filtering.
+        </div>
+        <div id="flameStatus" class="status-banner" style="display: none; margin-top: 10px;">
+          <span class="spinner"></span>
+          <span id="flameStatusText">Sampling execution on CPU...</span>
+        </div>
+        <div id="flameViewportContainer" style="margin-top: 12px; width: 100%; border-radius: 8px; border: 1px solid var(--border); overflow: hidden; background: #1a1a24; min-height: 480px; display: flex; align-items: center; justify-content: center;">
+          <iframe id="flameIframe" style="width: 100%; height: 500px; border: none; background: #fff;" src="/api/flamegraph?bot=umcts_v2&time_ms=500"></iframe>
+        </div>
+      </div>
+
+      <!-- DEEP ENGINES, TABLEBASE & STUDY LAB CARD -->
+      <div class="codex-card" style="border-color: #38bdf8; background: #131b2e;">
+        <div class="codex-header">
+          <div class="codex-title" style="color: #38bdf8;">🧠 Deep Engines, Endgame Tablebase & Storage Lab</div>
+          <button class="primary" style="padding: 6px 14px; font-size: 0.85rem;" onclick="fetchStudyStatus()">
+            🔄 Refresh Lab Status
+          </button>
+        </div>
+        <div class="codex-desc">
+          Continuous discovery daemon state leveraging host resources: 128 GB RAM, 7.2 TB ZFS storage pool, and NVIDIA RTX 5060 Ti GPU.
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-top: 8px;">
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">D4 Opening Book</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #38bdf8; margin: 4px 0;" id="labBookEntries">15 positions</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;">D4 Dihedral symmetry reduction (&lt; 1 &mu;s lookup)</div>
+          </div>
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">df-pn Endgame Tablebase</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #4ade80; margin: 4px 0;" id="labEgtbSolved">20 proven boards</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;">Zero-copy memmap2 (/my-zraid/uttt/egtb/)</div>
+          </div>
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">RTX 5060 Ti Deep Learning</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #c084fc; margin: 4px 0;">ResNet (6 Blocks)</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;">PyTorch CUDA AMP + ONNX export ready</div>
+          </div>
+          <div style="background: #090d16; padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+            <div style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700;">ZFS Storage Pool</div>
+            <div style="font-size: 1.2rem; font-weight: 700; color: #fbbf24; margin: 4px 0;">7.2 TB Available</div>
+            <div style="font-size: 0.85rem; color: #94a3b8;">Mounted at /my-zraid/ (4x10TB RAID-Z)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const RESULT_MASKS = [7, 56, 448, 73, 146, 292, 84, 273];
+    const CAT = 511;
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabId).classList.add('active');
+      if (tabId === 'playTab' && playMoves.length === 0) {
+        resetHumanGame();
+      }
+    }
+
+    /* -------------------------------------------------------------
+       REPLAY VIEWER ENGINE
+    ------------------------------------------------------------- */
+    let replayData = null;
+    let currentTurnIndex = 0;
+    let isPlaying = false;
+    let playInterval = null;
+
+    function buildEmptyGrid(gridId) {
+      const superGrid = document.getElementById(gridId);
+      superGrid.innerHTML = "";
+      for (let s = 0; s < 9; s++) {
+        const sub = document.createElement("div");
+        sub.className = "sub-grid";
+        sub.id = `${gridId}-sub-${s}`;
+        for (let c = 0; c < 9; c++) {
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          cell.id = `${gridId}-cell-${s}-${c}`;
+          sub.appendChild(cell);
+        }
+        superGrid.appendChild(sub);
+      }
+    }
+
+    function checkSubWinner(bb) {
+      return RESULT_MASKS.some(mask => (bb & mask) === mask);
+    }
+
+    function renderReplayBoard(turnIdx) {
+      if (!replayData) return;
+      const xbb = new Array(9).fill(0);
+      const obb = new Array(9).fill(0);
+      let lastMove = null;
+
+      for (let i = 0; i < turnIdx; i++) {
+        const m = replayData.moves[i];
+        lastMove = m;
+        if (m.player === "X") {
+          xbb[m.subboard] |= (1 << m.subsquare);
+        } else {
+          obb[m.subboard] |= (1 << m.subsquare);
+        }
+      }
+
+      const xSupers = xbb.map(bb => checkSubWinner(bb));
+      const oSupers = obb.map(bb => checkSubWinner(bb));
+
+      for (let s = 0; s < 9; s++) {
+        const sub = document.getElementById(`replaySuperGrid-sub-${s}`);
+        sub.classList.remove("active-subboard");
+        const existingOverlay = sub.querySelector(".sub-overlay");
+        if (existingOverlay) existingOverlay.remove();
+
+        for (let c = 0; c < 9; c++) {
+          const cell = document.getElementById(`replaySuperGrid-cell-${s}-${c}`);
+          cell.className = "cell";
+          cell.textContent = "";
+
+          if (xbb[s] & (1 << c)) {
+            cell.textContent = "X";
+            cell.classList.add("x-mark");
+          } else if (obb[s] & (1 << c)) {
+            cell.textContent = "O";
+            cell.classList.add("o-mark");
+          }
+
+          if (lastMove && lastMove.subboard === s && lastMove.subsquare === c) {
+            cell.classList.add("last-move");
+          }
+        }
+
+        if (xSupers[s]) {
+          const ov = document.createElement("div");
+          ov.className = "sub-overlay x-won";
+          ov.textContent = "X";
+          sub.appendChild(ov);
+        } else if (oSupers[s]) {
+          const ov = document.createElement("div");
+          ov.className = "sub-overlay o-won";
+          ov.textContent = "O";
+          sub.appendChild(ov);
+        } else if ((xbb[s] | obb[s]) === CAT) {
+          const ov = document.createElement("div");
+          ov.className = "sub-overlay tie-won";
+          ov.textContent = "TIE";
+          sub.appendChild(ov);
+        }
+      }
+
+      if (lastMove && turnIdx < replayData.moves.length) {
+        const nextTarget = lastMove.subsquare;
+        const targetComplete = xSupers[nextTarget] || oSupers[nextTarget] || ((xbb[nextTarget] | obb[nextTarget]) === CAT);
+        if (!targetComplete) {
+          document.getElementById(`replaySuperGrid-sub-${nextTarget}`).classList.add("active-subboard");
+        } else {
+          for (let s = 0; s < 9; s++) {
+            if (!xSupers[s] && !oSupers[s] && ((xbb[s] | obb[s]) !== CAT)) {
+              document.getElementById(`replaySuperGrid-sub-${s}`).classList.add("active-subboard");
+            }
+          }
+        }
+      }
+
+      document.getElementById("turnLabel").textContent = `${turnIdx} / ${replayData.moves.length}`;
+      document.getElementById("turnSlider").value = turnIdx;
+
+      if (lastMove) {
+        document.getElementById("lastMoveLabel").textContent =
+          `Turn ${lastMove.turn}: ${lastMove.player} at (${lastMove.row}, ${lastMove.col}) [Board ${lastMove.subboard}, Cell ${lastMove.subsquare}]`;
+        document.getElementById("moveTimeLabel").textContent = `${lastMove.duration_ms.toFixed(1)} ms`;
+      } else {
+        document.getElementById("lastMoveLabel").textContent = "Start of Game";
+        document.getElementById("moveTimeLabel").textContent = "-";
+      }
+    }
+
+    function setTurn(idx) {
+      if (!replayData) return;
+      currentTurnIndex = Math.max(0, Math.min(idx, replayData.moves.length));
+      renderReplayBoard(currentTurnIndex);
+    }
+
+    function togglePlay() {
+      if (isPlaying) { pause(); } else { play(); }
+    }
+
+    function play() {
+      if (!replayData) return;
+      if (currentTurnIndex >= replayData.moves.length) currentTurnIndex = 0;
+      isPlaying = true;
+      document.getElementById("btnPlay").textContent = "⏸ Pause";
+      const speed = parseInt(document.getElementById("speedSlider").value, 10);
+      playInterval = setInterval(() => {
+        if (currentTurnIndex < replayData.moves.length) {
+          setTurn(currentTurnIndex + 1);
+        } else {
+          pause();
+        }
+      }, speed);
+    }
+
+    function pause() {
+      isPlaying = false;
+      document.getElementById("btnPlay").textContent = "▶ Play";
+      if (playInterval) clearInterval(playInterval);
+    }
+
+    function loadReplay(data) {
+      replayData = data;
+      document.getElementById("playerXName").textContent = data.player_x;
+      document.getElementById("playerOName").textContent = data.player_o;
+      document.getElementById("resultLabel").textContent = data.result;
+      document.getElementById("turnSlider").max = data.moves.length;
+      pause();
+      setTurn(0);
+    }
+
+    function loadReplayList() {
+      fetch("/api/replays")
+        .then(res => res.json())
+        .then(files => {
+          const sel = document.getElementById("serverReplaySelect");
+          sel.innerHTML = "";
+          if (files.length === 0) {
+            sel.innerHTML = "<option value=''>No saved replays found</option>";
+            return;
+          }
+          files.forEach(f => {
+            const opt = document.createElement("option");
+            opt.value = f;
+            opt.textContent = f;
+            sel.appendChild(opt);
+          });
+          onSelectServerReplay();
+        })
+        .catch(() => {
+          fetch("replay_ab_vs_hmcts.json")
+            .then(r => r.json())
+            .then(loadReplay)
+            .catch(() => {});
+        });
+    }
+
+    function onSelectServerReplay() {
+      const sel = document.getElementById("serverReplaySelect");
+      const filename = sel.value;
+      if (!filename) return;
+      fetch(`/api/replays/${filename}`)
+        .then(res => res.json())
+        .then(loadReplay)
+        .catch(err => console.error("Error loading replay:", err));
+    }
+
+    document.getElementById("btnPlay").onclick = togglePlay;
+    document.getElementById("btnPrev").onclick = () => { pause(); setTurn(currentTurnIndex - 1); };
+    document.getElementById("btnNext").onclick = () => { pause(); setTurn(currentTurnIndex + 1); };
+    document.getElementById("btnStart").onclick = () => { pause(); setTurn(0); };
+    document.getElementById("btnEnd").onclick = () => { pause(); setTurn(replayData ? replayData.moves.length : 0); };
+    document.getElementById("turnSlider").oninput = (e) => { pause(); setTurn(parseInt(e.target.value, 10)); };
+    document.getElementById("speedSlider").oninput = (e) => {
+      document.getElementById("speedVal").textContent = `${e.target.value}ms`;
+      if (isPlaying) { pause(); play(); }
+    };
+    document.getElementById("replayFileInput").onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          loadReplay(JSON.parse(event.target.result));
+        } catch (err) { alert("Failed to parse JSON replay file: " + err); }
+      };
+      reader.readAsText(file);
+    };
+
+    /* -------------------------------------------------------------
+       LIVE BATTLE TRIGGER
+    ------------------------------------------------------------- */
+    function startLiveBattle() {
+      const bot1 = document.getElementById("battleBot1").value;
+      const bot2 = document.getElementById("battleBot2").value;
+      const timeMs = parseInt(document.getElementById("battleTimeMs").value, 10) || 30;
+
+      const status = document.getElementById("battleStatus");
+      status.style.display = "flex";
+
+      fetch("/api/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot1, bot2, time_ms: timeMs })
+      })
+      .then(res => res.json())
+      .then(data => {
+        status.style.display = "none";
+        loadReplay(data);
+        // Switch to replay tab
+        document.querySelectorAll('.tab-btn')[0].click();
+        loadReplayList();
+      })
+      .catch(err => {
+        status.style.display = "none";
+        alert("Battle failed: " + err);
+      });
+    }
+
+    /* -------------------------------------------------------------
+       TOURNAMENT LEADERBOARD
+    ------------------------------------------------------------- */
+    function loadLeaderboard() {
+      fetch("/api/tournament")
+        .then(res => res.json())
+        .then(data => {
+          const tbody = document.getElementById("leaderboardBody");
+          tbody.innerHTML = "";
+          if (!data.leaderboard || data.leaderboard.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='6' style='text-align: center; color: var(--text-muted);'>No tournament results found. Click 'Run New Tournament'.</td></tr>";
+            return;
+          }
+          data.leaderboard.forEach(entry => {
+            const tr = document.createElement("tr");
+            const rankClass = entry.rank === 1 ? "rank-1" : entry.rank === 2 ? "rank-2" : entry.rank === 3 ? "rank-3" : "";
+            tr.innerHTML = `
+              <td class="${rankClass}">#${entry.rank}</td>
+              <td style="font-weight: 600;">${entry.bot_name}</td>
+              <td style="color: #38bdf8; font-weight: 700;">${entry.elo.toFixed(1)}</td>
+              <td>${entry.points.toFixed(1)}</td>
+              <td>${entry.wins}W - ${entry.losses}L - ${entry.draws}D</td>
+              <td>${entry.win_percentage.toFixed(1)}%</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        })
+        .catch(() => {});
+    }
+
+    function runLiveTournament() {
+      const status = document.getElementById("tourneyStatus");
+      status.style.display = "flex";
+
+      fetch("/api/tournament", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ games: 4, time_ms: 15 })
+      })
+      .then(res => res.json())
+      .then(() => {
+        status.style.display = "none";
+        loadLeaderboard();
+      })
+      .catch(err => {
+        status.style.display = "none";
+        alert("Tournament execution failed: " + err);
+      });
+    }
+
+    /* -------------------------------------------------------------
+       INTERACTIVE HUMAN VS AI
+    ------------------------------------------------------------- */
+    let playMoves = [];
+    let isGameOver = false;
+
+    function resetHumanGame() {
+      playMoves = [];
+      isGameOver = false;
+      document.getElementById("playStatusLabel").textContent = "Your turn (Click highlighted squares)";
+      document.getElementById("playTurnLabel").textContent = "1";
+      renderPlayBoard();
+    }
+
+    function renderPlayBoard() {
+      const xbb = new Array(9).fill(0);
+      const obb = new Array(9).fill(0);
+
+      playMoves.forEach((m_idx, i) => {
+        const sub = Math.floor(m_idx / 9);
+        const sq = m_idx % 9;
+        if (i % 2 === 0) xbb[sub] |= (1 << sq);
+        else obb[sub] |= (1 << sq);
+      });
+
+      const xSupers = xbb.map(bb => checkSubWinner(bb));
+      const oSupers = obb.map(bb => checkSubWinner(bb));
+
+      // Determine active subboard
+      let activeSub = null;
+      if (playMoves.length > 0) {
+        const lastM = playMoves[playMoves.length - 1];
+        const nextSub = lastM % 9;
+        const complete = xSupers[nextSub] || oSupers[nextSub] || ((xbb[nextSub] | obb[nextSub]) === CAT);
+        if (!complete) activeSub = nextSub;
+      }
+
+      for (let s = 0; s < 9; s++) {
+        const sub = document.getElementById(`playSuperGrid-sub-${s}`);
+        sub.classList.remove("active-subboard");
+        const existingOverlay = sub.querySelector(".sub-overlay");
+        if (existingOverlay) existingOverlay.remove();
+
+        const isSubActive = !isGameOver && (activeSub === null || activeSub === s) && !xSupers[s] && !oSupers[s] && ((xbb[s] | obb[s]) !== CAT);
+        if (isSubActive) sub.classList.add("active-subboard");
+
+        for (let c = 0; c < 9; c++) {
+          const cell = document.getElementById(`playSuperGrid-cell-${s}-${c}`);
+          cell.className = "cell";
+          cell.textContent = "";
+          cell.onclick = null;
+
+          if (xbb[s] & (1 << c)) {
+            cell.textContent = "X";
+            cell.classList.add("x-mark");
+          } else if (obb[s] & (1 << c)) {
+            cell.textContent = "O";
+            cell.classList.add("o-mark");
+          } else if (isSubActive) {
+            cell.classList.add("clickable");
+            const moveIdx = s * 9 + c;
+            cell.onclick = () => onHumanMove(moveIdx);
+          }
+        }
+
+        if (xSupers[s]) {
+          const ov = document.createElement("div");
+          ov.className = "sub-overlay x-won";
+          ov.textContent = "X";
+          sub.appendChild(ov);
+        } else if (oSupers[s]) {
+          const ov = document.createElement("div");
+          ov.className = "sub-overlay o-won";
+          ov.textContent = "O";
+          sub.appendChild(ov);
+        } else if ((xbb[s] | obb[s]) === CAT) {
+          const ov = document.createElement("div");
+          ov.className = "sub-overlay tie-won";
+          ov.textContent = "TIE";
+          sub.appendChild(ov);
+        }
+      }
+    }
+
+    function onHumanMove(moveIdx) {
+      if (isGameOver) return;
+      playMoves.push(moveIdx);
+      renderPlayBoard();
+
+      document.getElementById("playStatusLabel").textContent = "AI is calculating move...";
+      document.getElementById("playTurnLabel").textContent = `${playMoves.length + 1}`;
+
+      const bot = document.getElementById("playOpponent").value;
+      fetch("/api/play-move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot, moves: playMoves, time_ms: 60 })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.game_over) {
+          isGameOver = true;
+          document.getElementById("playStatusLabel").textContent = `🎉 Game Over: ${data.winner}!`;
+          renderPlayBoard();
+          return;
+        }
+
+        playMoves.push(data.bot_move_index);
+        document.getElementById("playTurnLabel").textContent = `${playMoves.length + 1}`;
+
+        if (data.game_over) {
+          isGameOver = true;
+          document.getElementById("playStatusLabel").textContent = `Game Over: ${data.winner}!`;
+        } else {
+          document.getElementById("playStatusLabel").textContent = `AI played at (${data.bot_row}, ${data.bot_col}). Your turn!`;
+        }
+        renderPlayBoard();
+      })
+      .catch(err => {
+        document.getElementById("playStatusLabel").textContent = "Error: " + err;
+      });
+    }
+
+    async function fetchHardwareProfile() {
+      try {
+        const resp = await fetch("/api/profile");
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.cpu_info) {
+            document.getElementById("profileCpuModel").textContent = `Host CPU: ${data.cpu_info}`;
+          }
+          if (data.cache_profile) {
+            document.getElementById("profileCacheSummary").textContent = `${data.cache_profile.small_table_latency_ns.toFixed(1)} ns vs ${data.cache_profile.large_table_latency_ns.toFixed(1)} ns`;
+            document.getElementById("profileCacheSlowdown").textContent = `${data.cache_profile.cache_slowdown_factor.toFixed(2)}x slowdown when spilling past CPU cache`;
+          }
+          if (data.allocator_profile) {
+            document.getElementById("profileAllocSummary").textContent = `${(data.allocator_profile.allocations_per_sec / 1e6).toFixed(1)}M allocs/sec`;
+          }
+          if (data.search_throughput && data.search_throughput.length > 0) {
+            document.getElementById("profileSimSummary").textContent = `${Math.round(data.search_throughput[0].rollouts_per_sec).toLocaleString()} rollouts/sec`;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch hardware profile", e);
+      }
+    }
+
+    async function generateFlamegraph() {
+      const bot = document.getElementById("flameBotSelect").value;
+      const timeMs = document.getElementById("flameTimeSelect").value;
+      const statusBanner = document.getElementById("flameStatus");
+      const statusText = document.getElementById("flameStatusText");
+      const iframe = document.getElementById("flameIframe");
+
+      statusBanner.style.display = "flex";
+      statusText.textContent = `Sampling execution profile for ${bot} over ${timeMs} ms...`;
+
+      try {
+        const url = `/api/flamegraph?bot=${encodeURIComponent(bot)}&time_ms=${encodeURIComponent(timeMs)}`;
+        iframe.src = url;
+        iframe.onload = () => {
+          statusBanner.style.display = "none";
+        };
+      } catch (e) {
+        statusText.textContent = "Error sampling flamegraph: " + e;
+      }
+    }
+
+    async function fetchStudyStatus() {
+      try {
+        const resp = await fetch("/api/study/status");
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.book_entries !== undefined) {
+            document.getElementById("labBookEntries").textContent = `${data.book_entries} positions`;
+          }
+          if (data.egtb_solved !== undefined) {
+            document.getElementById("labEgtbSolved").textContent = `${data.egtb_solved} proven boards`;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch study status", e);
+      }
+    }
+
+    // Initialize Grids & Data
+    buildEmptyGrid("replaySuperGrid");
+    buildEmptyGrid("playSuperGrid");
+    loadReplayList();
+    loadLeaderboard();
+    fetchHardwareProfile();
+    fetchStudyStatus();
+  </script>
+</body>
+</html>

@@ -84,16 +84,41 @@ impl Default for UltimateTicTacToeBoard {
 
 impl UltimateTicTacToeBoard {
     pub fn get_tied_mask(&self) -> u16 {
+        let won = self.x_supers | self.o_supers;
         self.xbb
             .iter()
             .zip(self.obb.iter())
             .enumerate()
-            .filter_map(|(index, (xbb, obb))| match xbb | obb {
-                CAT => Some(1u16 << index),
-                _ => None,
+            .filter_map(|(index, (xbb, obb))| {
+                if (won & (1 << index)) == 0 && (xbb | obb) == CAT {
+                    Some(1u16 << index)
+                } else {
+                    None
+                }
             })
             .fold(0u16, |current, next| current | next)
     }
+
+    /// Returns the canonical version of this board (canonical resolved subboards and normalized target subboard)
+    pub fn to_canonical(&self) -> Self {
+        crate::canonical::to_canonical_board(self)
+    }
+
+    /// In-place canonicalization of resolved subboards and target subboard
+    pub fn canonicalize(&mut self) {
+        crate::canonical::canonicalize_board(self);
+    }
+
+    /// Packs this board into an exact 167-bit integer representation
+    pub fn to_packed(&self) -> crate::packed_state::PackedBoardState {
+        crate::packed_state::PackedBoardState::from_board(self)
+    }
+
+    /// Canonicalizes and packs this board into an exact 167-bit integer representation
+    pub fn to_packed_canonical(&self) -> crate::packed_state::PackedBoardState {
+        crate::packed_state::PackedBoardState::from_board_canonical(self)
+    }
+
 
     pub fn get_subboard_moves(
         &self,

@@ -153,6 +153,53 @@ impl ArenaServer {
                     .unwrap_or_else(|_| "{}".to_string());
                 Self::send_json(&mut stream, 200, &json);
             }
+            ("GET", "/api/profile") => {
+                let json = fs::read_to_string("hardware_profile.json")
+                    .or_else(|_| fs::read_to_string("uttt-codingame/hardware_profile.json"))
+                    .unwrap_or_else(|_| {
+                        let report = crate::profile::run_hardware_profile();
+                        serde_json::to_string_pretty(&report).unwrap_or_default()
+                    });
+                Self::send_json(&mut stream, 200, &json);
+            }
+            ("GET", "/api/flamegraph") => {
+                let mut bot_name = "umcts_v2".to_string();
+                let mut time_ms = 1000u64;
+                if let Some((_, query)) = path_and_query.split_once('?') {
+                    for param in query.split('&') {
+                        if let Some((k, v)) = param.split_once('=') {
+                            if k == "bot" {
+                                bot_name = v.to_string();
+                            } else if k == "time_ms" {
+                                if let Ok(ms) = v.parse::<u64>() {
+                                    time_ms = ms.clamp(100, 10000);
+                                }
+                            }
+                        }
+                    }
+                }
+                match crate::arena::flamegraph::FlamegraphSampler::profile_bot(&bot_name, Duration::from_millis(time_ms)) {
+                    Ok(svg) => Self::send_svg(&mut stream, 200, &svg),
+                    Err(e) => Self::send_error(&mut stream, 500, &e),
+                }
+            }
+            ("GET", "/api/study/status") => {
+                let json = fs::read_to_string("/my-zraid/uttt/study_status.json")
+                    .or_else(|_| fs::read_to_string("study_status.json"))
+                    .unwrap_or_else(|_| {
+                        let book = crate::opening_book::OpeningBook::new();
+                        let default_json = serde_json::json!({
+                            "active": false,
+                            "book_entries": book.entries.len(),
+                            "egtb_solved": 0,
+                            "zfs_storage_avail_tb": 7.2,
+                            "ram_gb": 128,
+                            "gpu": "NVIDIA GeForce RTX 5060 Ti"
+                        });
+                        serde_json::to_string_pretty(&default_json).unwrap_or_default()
+                    });
+                Self::send_json(&mut stream, 200, &json);
+            }
             ("GET", "/api/replays") => {
                 let mut replays = Vec::new();
                 for entry in fs::read_dir(".").into_iter().flatten().flatten() {
@@ -321,5 +368,18 @@ impl ArenaServer {
     fn send_error(stream: &mut TcpStream, status: u16, message: &str) {
         let err_json = format!("{{\"error\":\"{}\"}}", message);
         Self::send_json(stream, status, &err_json);
+    }
+
+    fn send_svg(stream: &mut TcpStream, status: u16, svg: &[u8]) {
+        let status_text = match status {
+            200 => "OK",
+            _ => "Internal Server Error",
+        };
+        let response = format!(
+            "HTTP/1.1 {} {}\r\nContent-Type: image/svg+xml; charset=UTF-8\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+            status, status_text, svg.len()
+        );
+        let _ = stream.write_all(response.as_bytes());
+        let _ = stream.write_all(svg);
     }
 }

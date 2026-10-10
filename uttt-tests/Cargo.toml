@@ -13,3 +13,5 @@ default = []
 [dependencies]
 uttt = {path = "../uttt"}
 serde_json = "1.0"
+rand = "0.8"
+

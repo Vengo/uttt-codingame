@@ -8,6 +8,8 @@ pub mod alphabeta_bot;
 pub mod mcts_bot;
 pub mod heuristic_mcts_bot;
 pub mod original_umcts_bot;
+pub mod umcts_v2_bot;
+pub mod book_bot;
 
 pub use random_bot::RandomBot;
 pub use rule_based_bot::RuleBasedBot;
@@ -15,6 +17,8 @@ pub use alphabeta_bot::AlphaBetaBot;
 pub use mcts_bot::MctsBot;
 pub use heuristic_mcts_bot::HeuristicMctsBot;
 pub use original_umcts_bot::OriginalUmctsBot;
+pub use umcts_v2_bot::UmctsV2Bot;
+pub use book_bot::BookBot;
 
 pub trait Bot: Send + Sync {
     fn name(&self) -> &str;
@@ -36,6 +40,9 @@ pub fn available_bots() -> Vec<&'static str> {
         "mcts",
         "heuristic_mcts",
         "original_umcts",
+        "umcts_v2",
+        "book_umcts_v2",
+        "book_alphabeta",
     ]
 }
 
@@ -47,6 +54,9 @@ pub fn create_bot(name: &str) -> Option<Box<dyn Bot>> {
         "mcts" | "uct" => Some(Box::new(MctsBot::new())),
         "heuristic_mcts" | "hmcts" => Some(Box::new(HeuristicMctsBot::new())),
         "original_umcts" | "umcts" | "original" => Some(Box::new(OriginalUmctsBot::new())),
+        "umcts_v2" | "v2" | "umcts2" => Some(Box::new(UmctsV2Bot::new())),
+        "book_umcts_v2" | "book_v2" => Some(Box::new(BookBot::new("umcts_v2"))),
+        "book_alphabeta" | "book_ab" => Some(Box::new(BookBot::new("alphabeta"))),
         _ => None,
     }
 }

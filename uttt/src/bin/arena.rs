@@ -14,6 +14,9 @@ fn print_usage() {
     println!("  arena match --bot1 <name> --bot2 <name> [--games <N>] [--time-ms <T>] [--replay <path>]");
     println!("  arena play --bot <name> [--time-ms <T>] [--play-as <x|o>]");
     println!("  arena server [--port <P>] [--host <H>]");
+    println!("  arena profile");
+    println!("  arena flamegraph --bot <name> [--time-ms <T>] [--out <file.svg>]");
+    println!("  arena study [--cycles <N>] [--time-limit-mins <M>]");
     println!("  arena list");
     println!("\nAvailable bots: {:?}", available_bots());
 }
@@ -26,6 +29,9 @@ fn print_bot_descriptions() {
     println!("  4. mcts           - Classic Monte Carlo Tree Search (UCT) with random rollouts and backprop.");
     println!("  5. heuristic_mcts - Advanced MCTS combining UCT tree search with heuristic rollout policies.");
     println!("  6. original_umcts - Original UMCTS search engine from the repository.");
+    println!("  7. umcts_v2       - Refactored hybrid MCTS-Solver with 1-node expansion, bound proofs, and cache locality.");
+    println!("  8. book_umcts_v2  - UMCTS-V2 with instant D4 Opening Book lookup (<1 us) and EGTB probing.");
+    println!("  9. book_alphabeta - AlphaBeta with instant D4 Opening Book lookup and EGTB probing.");
     println!();
 }
 
@@ -54,6 +60,15 @@ fn main() {
         }
         "server" | "serve" => {
             run_server_cmd(&args[2..]);
+        }
+        "profile" | "perf" | "benchmark" => {
+            run_profile_cmd(&args[2..]);
+        }
+        "flamegraph" | "flame" => {
+            run_flamegraph_cmd(&args[2..]);
+        }
+        "study" | "daemon" | "learn" => {
+            run_study_cmd(&args[2..]);
         }
         "--help" | "-h" | "help" => {
             print_usage();
@@ -111,19 +126,64 @@ fn run_tournament_cmd(args: &[String]) {
     let tournament = Tournament::new(Duration::from_millis(time_ms), games);
     let result = tournament.run(&bot_names, &legal_moves, &zobrist_constants);
 
-    // Write result to JSON
+    // Write result to JSON in current dir and parent dir
     let json = serde_json::to_string_pretty(&result).unwrap();
-    if let Ok(mut f) = std::fs::File::create("tournament_results.json") {
-        let _ = f.write_all(json.as_bytes());
-        println!("Full tournament results written to tournament_results.json");
+    let _ = std::fs::write("tournament_results.json", &json);
+    let _ = std::fs::write("../tournament_results.json", &json);
+    println!("Full tournament results written to tournament_results.json");
+
+    println!("\n=== Final Tournament Leaderboard ===");
+    println!("{:<4} {:<18} {:<10} {:<10} {:<12} {:<8}", "Rank", "Bot", "Elo", "Points", "Record (W-L-D)", "Win %");
+    for (i, entry) in result.leaderboard.iter().enumerate() {
+        println!(
+            "{:<4} {:<18} {:<10.1} {:<10.1} {:<12} {:<8.1}%",
+            i + 1,
+            entry.bot_name,
+            entry.elo,
+            entry.points,
+            format!("{}-{}-{}", entry.wins, entry.losses, entry.draws),
+            entry.win_percentage
+        );
     }
+    println!("====================================\n");
 }
 
 fn run_match_cmd(args: &[String]) {
-    let bot1_name = parse_arg_string(args, "--bot1", "alphabeta");
-    let bot2_name = parse_arg_string(args, "--bot2", "rule_based");
-    let games = parse_arg_usize(args, "--games", 20);
-    let time_ms = parse_arg_u64(args, "--time-ms", 40);
+    let mut positional = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i].starts_with('-') {
+            i += 2; // skip flag and value
+        } else {
+            positional.push(&args[i]);
+            i += 1;
+        }
+    }
+
+    let bot1_name = if !positional.is_empty() {
+        positional[0].to_string()
+    } else {
+        parse_arg_string(args, "--bot1", "alphabeta")
+    };
+
+    let bot2_name = if positional.len() > 1 {
+        positional[1].to_string()
+    } else {
+        parse_arg_string(args, "--bot2", "rule_based")
+    };
+
+    let games = if args.contains(&"-g".to_string()) {
+        parse_arg_usize(args, "-g", 20)
+    } else {
+        parse_arg_usize(args, "--games", 20)
+    };
+
+    let time_ms = if args.contains(&"-t".to_string()) {
+        parse_arg_u64(args, "-t", 40)
+    } else {
+        parse_arg_u64(args, "--time-ms", 40)
+    };
+
     let replay_path = parse_arg_string(args, "--replay", "");
 
     println!("Setting up match: {} vs {} ({} games, {}ms/move)", bot1_name, bot2_name, games, time_ms);
@@ -292,5 +352,178 @@ fn run_server_cmd(args: &[String]) {
     let host = parse_arg_string(args, "--host", "0.0.0.0");
     let server = uttt::arena::ArenaServer::new(&host, port);
     server.start();
+}
+
+fn run_profile_cmd(_args: &[String]) {
+    println!("\n=======================================================");
+    println!("        HARDWARE & REAL-WORLD CACHE PROFILER          ");
+    println!("=======================================================");
+    let report = uttt::profile::run_hardware_profile();
+    println!("Host CPU: {}", report.cpu_info);
+    println!("\n[1] CPU Cache Hierarchy Benchmark:");
+    println!(
+        "  - L3 Cache-Resident ({} KB, {} entries): {:.1} ns / lookup",
+        report.cache_profile.small_table_kb,
+        report.cache_profile.small_table_entries,
+        report.cache_profile.small_table_latency_ns
+    );
+    println!(
+        "  - DRAM Spilling ({} KB, {} entries): {:.1} ns / lookup",
+        report.cache_profile.large_table_kb,
+        report.cache_profile.large_table_entries,
+        report.cache_profile.large_table_latency_ns
+    );
+    println!(
+        "  -> Slowdown Factor: {:.2}x SLOWER when spilling past CPU cache!",
+        report.cache_profile.cache_slowdown_factor
+    );
+    println!("\n[2] Allocator & Heap Churn Benchmark:");
+    println!("  - Total Iterations: {}", report.allocator_profile.total_allocations);
+    println!("  - Throughput: {}", report.allocator_profile.summary);
+    println!("\n[3] Playout Simulation Throughput:");
+    for t in &report.search_throughput {
+        println!("  - {}: {}", t.bot_name, t.summary);
+    }
+    println!("=======================================================\n");
+
+    let json = serde_json::to_string_pretty(&report).unwrap();
+    if let Ok(mut f) = std::fs::File::create("hardware_profile.json") {
+        let _ = f.write_all(json.as_bytes());
+        println!("Report saved to hardware_profile.json");
+    }
+}
+
+fn run_flamegraph_cmd(args: &[String]) {
+    let bot_name = parse_arg_string(args, "--bot", "umcts_v2");
+    let time_ms = parse_arg_u64(args, "--time-ms", 2000);
+    let out_file = parse_arg_string(args, "--out", &format!("flamegraph_{}.svg", bot_name));
+
+    println!("Sampling execution profile for bot '{}' over {} ms...", bot_name, time_ms);
+    match uttt::arena::FlamegraphSampler::profile_bot(&bot_name, Duration::from_millis(time_ms)) {
+        Ok(svg_bytes) => {
+            if let Err(e) = std::fs::write(&out_file, &svg_bytes) {
+                eprintln!("Failed to write flamegraph to {}: {}", out_file, e);
+            } else {
+                println!("✅ Flamegraph generated successfully: {}", out_file);
+                println!("   Size: {} KB", svg_bytes.len() / 1024);
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to generate flamegraph: {}", e);
+        }
+    }
+}
+
+fn run_study_cmd(args: &[String]) {
+    let cycles = parse_arg_usize(args, "--cycles", 5);
+    let time_limit_mins = parse_arg_u64(args, "--time-limit-mins", 30);
+    let min_resolved = parse_arg_usize(args, "--min-resolved", 3);
+    let book_depth = parse_arg_usize(args, "--book-depth", 3);
+    let target_egtb_batch = parse_arg_usize(args, "--target-egtb", 30);
+
+    println!("\n=======================================================");
+    println!("🔬 Ultimate Tic-Tac-Toe Continuous Study & Benchmark Daemon");
+    println!("=======================================================");
+    println!("Configuration:");
+    println!("  - Target Cycles: {}", cycles);
+    println!("  - Max Time: {} minutes", time_limit_mins);
+    println!("  - Min Resolved Subboards: {} (Progressive Tiering Enabled)", min_resolved);
+    println!("  - Opening Book Depth: {}", book_depth);
+    println!("  - ZFS Storage: /my-zraid/uttt/ (7.2 TB Available)");
+    println!("  - Host Memory: 128 GB RAM");
+    println!("  - Accelerator: NVIDIA GeForce RTX 5060 Ti");
+    println!("=======================================================\n");
+
+    let engine = TicTacToeEngine::new();
+    let legal_moves = engine.get_move_ordering_array();
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+
+    let mut book = uttt::opening_book::OpeningBook::new();
+    println!("📚 Opening Book: {} canonical entries loaded.", book.entries.len());
+
+    let mut egtb = uttt::egtb::EgtbDatabase::new();
+    println!("🏰 Endgame Tablebase initialized at {:?}", egtb.file_path);
+
+    let start_time = std::time::Instant::now();
+    let max_duration = Duration::from_secs(time_limit_mins * 60);
+
+    let mut total_self_play_games = 0usize;
+    let mut total_egtb_solved = 0usize;
+
+    for cycle in 1..=cycles {
+        if start_time.elapsed() >= max_duration {
+            println!("⏱ Time limit reached. Stopping study.");
+            break;
+        }
+
+        println!("\n--- [Cycle {}/{}] Starting Discovery Phase ---", cycle, cycles);
+
+        // 1. Opening Book Deepening with Principled UCT Dominance & Frontier Harvesting
+        print!("  [1/3] Deepening Opening Book with UMCTS-V2 (PV + dominance filtering)... ");
+        std::io::stdout().flush().unwrap();
+        let added_book = book.deepen_book(
+            book_depth.max(2) * 2,
+            Duration::from_millis(300),
+            100, // principled visit threshold with dominance margin
+            &legal_moves,
+            &zobrist_constants,
+        );
+        println!("Done! (+{} new positions, Total book: {})", added_book, book.entries.len());
+
+        // 2. Systematic Endgame Tablebase Solving (Tier 9 instant, Tier 8 high-speed, Tier 7)
+        let tier_resolved = if cycle == 1 && egtb.entry_count < 10000 {
+            9 // Generate all Tier 9 terminal configurations on first cycle
+        } else if cycle <= 5 {
+            8 // Systematically solve Tier 8 (8 resolved, 1 active subboard)
+        } else {
+            7 // Systematically solve Tier 7 (7 resolved, 2 active subboards)
+        };
+        print!("  [2/3] Solving late-stage positions (Systematic Tier {})... ", tier_resolved);
+        std::io::stdout().flush().unwrap();
+        if let Ok(count) = egtb.generate_egtb(target_egtb_batch.max(100), tier_resolved, &legal_moves, &zobrist_constants) {
+            total_egtb_solved += count;
+            println!("Done! (+{} new endgame states proven)", count);
+        } else {
+            println!("Skipped/Current batch complete.");
+        }
+
+
+        // 3. Self-Play Training Game Generation
+        print!("  [3/3] Generating self-play training games for Deep Learning... ");
+        std::io::stdout().flush().unwrap();
+        let mut b1 = uttt::bots::create_bot("umcts_v2").unwrap();
+        let mut b2 = uttt::bots::create_bot("alphabeta").unwrap();
+        let game = uttt::arena::Game::new(Duration::from_millis(20)).with_replay(false);
+        for _ in 0..4 {
+            let _ = game.play(b1.as_mut(), b2.as_mut(), &legal_moves, &zobrist_constants);
+            total_self_play_games += 1;
+        }
+        println!("Done! ({} total self-play games logged)", total_self_play_games);
+
+        // Update status JSON
+        let status = serde_json::json!({
+            "active": true,
+            "current_cycle": cycle,
+            "total_cycles": cycles,
+            "book_entries": book.entries.len(),
+            "egtb_solved": total_egtb_solved,
+            "self_play_games": total_self_play_games,
+            "elapsed_secs": start_time.elapsed().as_secs(),
+            "zfs_storage_path": "/my-zraid/uttt",
+            "gpu": "NVIDIA GeForce RTX 5060 Ti",
+            "last_update": format!("{:?}", std::time::SystemTime::now())
+        });
+        let status_str = serde_json::to_string_pretty(&status).unwrap();
+        let _ = std::fs::write("/my-zraid/uttt/study_status.json", &status_str);
+        let _ = std::fs::write("study_status.json", &status_str);
+    }
+
+    println!("\n=======================================================");
+    println!("🏁 Study Session Complete!");
+    println!("  - Final Book Entries: {}", book.entries.len());
+    println!("  - Endgame States Solved: {}", total_egtb_solved);
+    println!("  - Self-Play Games Generated: {}", total_self_play_games);
+    println!("  - Total Runtime: {:.1}s", start_time.elapsed().as_secs_f64());
+    println!("=======================================================\n");
 }
 

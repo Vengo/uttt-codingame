@@ -1,7 +1,7 @@
 use std::env;
 use std::io::{self, Write};
-use std::time::Duration;
-use uttt::arena::{Game, MatchRunner, Tournament};
+use std::time::{Duration, Instant};
+use uttt::arena::{Game, GameOutcome, GlickoCalculator, GlickoPlayer, MatchOutcome, MatchRunner, Tournament};
 use uttt::bots::{available_bots, create_bot};
 use uttt::game_solving::{AlphaBetaCompatible, GameMove, GameResult};
 use uttt::ttt_trait_solving::TicTacToeEngine;
@@ -11,8 +11,10 @@ fn print_usage() {
     println!("Ultimate Tic-Tac-Toe Arena & Bot Tournament Runner");
     println!("Usage:");
     println!("  arena tournament [--games <N>] [--time-ms <T>] [--bots <b1,b2,...>]");
+    println!("  arena benchmark --bot <name> [--baseline <name>] [--target-rd <RD>] [--time-ms <T>] [--max-games <N>]");
     println!("  arena match --bot1 <name> --bot2 <name> [--games <N>] [--time-ms <T>] [--replay <path>]");
     println!("  arena play --bot <name> [--time-ms <T>] [--play-as <x|o>]");
+    println!("  arena replay <file.json>");
     println!("  arena server [--port <P>] [--host <H>]");
     println!("  arena profile");
     println!("  arena flamegraph --bot <name> [--time-ms <T>] [--out <file.svg>]");
@@ -26,12 +28,14 @@ fn print_bot_descriptions() {
     println!("  1. random         - Baseline choosing uniformly random legal moves.");
     println!("  2. rule_based     - Fast expert heuristic bot: captures subboards, blocks wins, steers opponent.");
     println!("  3. alphabeta      - Minimax with Alpha-Beta pruning, iterative deepening, and superboard evaluation.");
-    println!("  4. mcts           - Classic Monte Carlo Tree Search (UCT) with random rollouts and backprop.");
-    println!("  5. heuristic_mcts - Advanced MCTS combining UCT tree search with heuristic rollout policies.");
-    println!("  6. original_umcts - Original UMCTS search engine from the repository.");
-    println!("  7. umcts_v2       - Refactored hybrid MCTS-Solver with 1-node expansion, bound proofs, and cache locality.");
-    println!("  8. book_umcts_v2  - UMCTS-V2 with instant D4 Opening Book lookup (<1 us) and EGTB probing.");
-    println!("  9. book_alphabeta - AlphaBeta with instant D4 Opening Book lookup and EGTB probing.");
+    println!("  4. alphabeta_v2   - Advanced Minimax with in-tree EGTB pruning, depth-preferred TT, and killer moves.");
+    println!("  5. mcts           - Classic Monte Carlo Tree Search (UCT) with random rollouts and backprop.");
+    println!("  6. heuristic_mcts - Advanced MCTS combining UCT tree search with heuristic rollout policies.");
+    println!("  7. original_umcts - Original UMCTS search engine from the repository.");
+    println!("  8. umcts_v2       - Refactored hybrid MCTS-Solver with 1-node expansion, bound proofs, and cache locality.");
+    println!("  9. umcts_v3       - Advanced MCTS-Solver with in-tree EGTB proof propagation and heuristic move priors.");
+    println!(" 10. book_umcts_v2  - UMCTS-V2 with instant D4 Opening Book lookup (<1 us) and EGTB probing.");
+    println!(" 11. book_alphabeta - AlphaBeta with instant D4 Opening Book lookup and EGTB probing.");
     println!();
 }
 
@@ -49,6 +53,9 @@ fn main() {
         "tournament" => {
             run_tournament_cmd(&args[2..]);
         }
+        "benchmark" | "bench" | "glicko" => {
+            run_benchmark_cmd(&args[2..]);
+        }
         "match" => {
             run_match_cmd(&args[2..]);
         }
@@ -61,7 +68,7 @@ fn main() {
         "server" | "serve" => {
             run_server_cmd(&args[2..]);
         }
-        "profile" | "perf" | "benchmark" => {
+        "profile" | "perf" => {
             run_profile_cmd(&args[2..]);
         }
         "flamegraph" | "flame" => {
@@ -524,6 +531,195 @@ fn run_study_cmd(args: &[String]) {
     println!("  - Endgame States Solved: {}", total_egtb_solved);
     println!("  - Self-Play Games Generated: {}", total_self_play_games);
     println!("  - Total Runtime: {:.1}s", start_time.elapsed().as_secs_f64());
+    println!("=======================================================\n");
+}
+
+fn run_benchmark_cmd(args: &[String]) {
+    let mut bot_name = String::new();
+    let mut baseline_name = "alphabeta".to_string();
+    let mut target_rd = 35.0f64;
+    let mut time_ms = 30u64;
+    let mut max_games = 200usize;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--bot" => {
+                if i + 1 < args.len() {
+                    bot_name = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            "--baseline" => {
+                if i + 1 < args.len() {
+                    baseline_name = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            "--target-rd" => {
+                if i + 1 < args.len() {
+                    target_rd = args[i + 1].parse().unwrap_or(35.0);
+                    i += 1;
+                }
+            }
+            "--time-ms" => {
+                if i + 1 < args.len() {
+                    time_ms = args[i + 1].parse().unwrap_or(30);
+                    i += 1;
+                }
+            }
+            "--max-games" => {
+                if i + 1 < args.len() {
+                    max_games = args[i + 1].parse().unwrap_or(200);
+                    i += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if bot_name.is_empty() {
+        eprintln!("Error: --bot <name> is required for benchmark.");
+        eprintln!("Available bots: {:?}", available_bots());
+        return;
+    }
+
+    println!("\n=======================================================");
+    println!("⚖️  Bayesian Benchmark Tournament (Glicko-2 Engine)");
+    println!("=======================================================");
+    println!("Candidate Bot:  {}", bot_name);
+    println!("Baseline Bot:   {} (Fixed anchor: Rating 1500, RD 30)", baseline_name);
+    println!("Target RD:      <= {:.1} (Tight error bounds: 95% CI <= ±{:.1} Elo)", target_rd, 1.96 * target_rd);
+    println!("Time Limit:     {} ms/move", time_ms);
+    println!("Max Games:      {}", max_games);
+    println!("=======================================================\n");
+
+    let engine = TicTacToeEngine::new();
+    let legal_moves = engine.get_move_ordering_array();
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+
+    let mut candidate_bot = match create_bot(&bot_name) {
+        Some(b) => b,
+        None => {
+            eprintln!("Error: Candidate bot '{}' not found.", bot_name);
+            return;
+        }
+    };
+
+    let mut baseline_bot = match create_bot(&baseline_name) {
+        Some(b) => b,
+        None => {
+            eprintln!("Error: Baseline bot '{}' not found.", baseline_name);
+            return;
+        }
+    };
+
+    let game_runner = Game::new(Duration::from_millis(time_ms)).with_replay(false);
+    let calc = GlickoCalculator::default();
+    let prior_player = GlickoPlayer::default();
+    let mut matches = Vec::new();
+
+    let mut wins = 0usize;
+    let mut losses = 0usize;
+    let mut draws = 0usize;
+
+    let start_time = Instant::now();
+    let mut current_glicko = prior_player.clone();
+
+    let mut pair = 0usize;
+    while matches.len() < max_games && current_glicko.rd > target_rd {
+        pair += 1;
+
+        // Game 1: Candidate as X (Player 1), Baseline as O (Player 2)
+        candidate_bot.reset();
+        baseline_bot.reset();
+        let outcome1 = game_runner.play(candidate_bot.as_mut(), baseline_bot.as_mut(), &legal_moves, &zobrist_constants);
+        let score1 = match outcome1.0.outcome {
+            GameOutcome::XWin | GameOutcome::OForfeit(_) => {
+                wins += 1;
+                1.0
+            }
+            GameOutcome::OWin | GameOutcome::XForfeit(_) => {
+                losses += 1;
+                0.0
+            }
+            _ => {
+                draws += 1;
+                0.5
+            }
+        };
+        matches.push(MatchOutcome {
+            opponent_rating: 1500.0,
+            opponent_rd: 30.0,
+            score: score1,
+        });
+
+        // Game 2: Baseline as X (Player 1), Candidate as O (Player 2)
+        candidate_bot.reset();
+        baseline_bot.reset();
+        let outcome2 = game_runner.play(baseline_bot.as_mut(), candidate_bot.as_mut(), &legal_moves, &zobrist_constants);
+        let score2 = match outcome2.0.outcome {
+            GameOutcome::OWin | GameOutcome::XForfeit(_) => {
+                wins += 1;
+                1.0
+            }
+            GameOutcome::XWin | GameOutcome::OForfeit(_) => {
+                losses += 1;
+                0.0
+            }
+            _ => {
+                draws += 1;
+                0.5
+            }
+        };
+        matches.push(MatchOutcome {
+            opponent_rating: 1500.0,
+            opponent_rd: 30.0,
+            score: score2,
+        });
+
+        // Evaluate single-period update across all accumulated matches
+        current_glicko = calc.update(&prior_player, &matches);
+
+        let total_played = matches.len();
+        let win_pct = ((wins as f64 + 0.5 * draws as f64) / total_played as f64) * 100.0;
+        let (ci_low, ci_high) = current_glicko.credible_interval_95();
+
+        println!(
+            "Pair {:3} (Games {:3}/{}): Score {}-{}-{} ({:.1}%) | Glicko: {:.1} ± {:.1} (95% CI: [{:.1}, {:.1}], RD: {:.1})",
+            pair, total_played, max_games, wins, losses, draws, win_pct, current_glicko.rating, 1.96 * current_glicko.rd, ci_low, ci_high, current_glicko.rd
+        );
+        let _ = io::stdout().flush();
+    }
+
+    let total_played = matches.len();
+    let win_pct = ((wins as f64 + 0.5 * draws as f64) / total_played as f64) * 100.0;
+    let (ci_low, ci_high) = current_glicko.credible_interval_95();
+
+    println!("\n=======================================================");
+    println!("📊 Final Benchmark Results: {} vs {}", bot_name, baseline_name);
+    println!("=======================================================");
+    println!("Total Games:     {}", total_played);
+    println!("Score Record:    {} Wins, {} Losses, {} Draws", wins, losses, draws);
+    println!("Score / Win %:   {:.1}%", win_pct);
+    println!("Glicko-2 Rating: {:.1}", current_glicko.rating);
+    println!("Rating Dev (RD): {:.1}", current_glicko.rd);
+    println!("95% Credible CI: [{:.1}, {:.1}] (Margin: ±{:.1} Elo)", ci_low, ci_high, 1.96 * current_glicko.rd);
+    println!("Total Duration:  {:.1}s", start_time.elapsed().as_secs_f64());
+    println!("-------------------------------------------------------");
+
+    if ci_low > 1500.0 {
+        println!("✅ [STATISTICALLY SIGNIFICANT IMPROVEMENT]");
+        println!("   The candidate bot is proven superior to baseline {} with >95% confidence!", baseline_name);
+        println!("   Estimated performance advantage: +{:.1} Elo (min: +{:.1} Elo)", current_glicko.rating - 1500.0, ci_low - 1500.0);
+    } else if ci_high < 1500.0 {
+        println!("❌ [STATISTICALLY SIGNIFICANT REGRESSION]");
+        println!("   The candidate bot performs worse than baseline {} with >95% confidence.", baseline_name);
+    } else {
+        println!("⚖️  [INCONCLUSIVE / EQUIVALENT]");
+        println!("   Performance is within the margin of error of baseline {}.", baseline_name);
+    }
     println!("=======================================================\n");
 }
 

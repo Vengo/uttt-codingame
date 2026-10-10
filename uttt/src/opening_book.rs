@@ -66,20 +66,31 @@ impl OpeningBook {
         board: &UltimateTicTacToeBoard,
         zobrist_constants: &ZobristConstants,
     ) -> Option<GameMove> {
+        self.lookup_with_min_visits(board, zobrist_constants, 1)
+    }
+
+    /// Looks up opening move only if recorded with at least min_visits
+    pub fn lookup_with_min_visits(
+        &self,
+        board: &UltimateTicTacToeBoard,
+        zobrist_constants: &ZobristConstants,
+        min_visits: u32,
+    ) -> Option<GameMove> {
         if self.entries.is_empty() {
             return None;
         }
 
         let (c_hash, sym) = SymmetryEngine::canonical_hash(board, zobrist_constants);
-        if let Some(&(c_move_idx, _visits)) = self.entries.get(&c_hash) {
-            let actual_move_idx = sym.inverse().transform_move_index(c_move_idx);
-            Some(GameMove {
-                x_to_move: board.x_to_move,
-                move_index: actual_move_idx,
-            })
-        } else {
-            None
+        if let Some(&(c_move_idx, visits)) = self.entries.get(&c_hash) {
+            if visits >= min_visits {
+                let actual_move_idx = sym.inverse().transform_move_index(c_move_idx);
+                return Some(GameMove {
+                    x_to_move: board.x_to_move,
+                    move_index: actual_move_idx,
+                });
+            }
         }
+        None
     }
 
     /// Records or updates a canonical entry

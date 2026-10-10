@@ -77,6 +77,49 @@ impl DfPnSolver {
         }
     }
 
+    /// Solves whether the current player to move can force a win, returning the best move if proven.
+    /// Returns:
+    /// - Some((true, Some(winning_move))): Proven Win for player to move, with winning move
+    /// - Some((false, None)): Disproven Win (Opponent wins or forced draw)
+    /// - None: Search budget exceeded (unsolved)
+    pub fn solve_move(
+        &mut self,
+        board: &UltimateTicTacToeBoard,
+        legal_moves_lookup: &[Vec<GameMove>],
+        zobrist_constants: &ZobristConstants,
+    ) -> Option<(bool, Option<GameMove>)> {
+        self.nodes_visited = 0;
+        let mut path = Vec::with_capacity(64);
+        let root_pn = self.mid(board, INFTY, INFTY, &mut path, legal_moves_lookup, zobrist_constants);
+        if root_pn.is_proven() {
+            let legal_moves = board.get_legal_moves(legal_moves_lookup);
+            let attacker_win_result = if board.x_to_move { GameResult::P1Win } else { GameResult::P2Win };
+            let mut winning_move = None;
+
+            for m in legal_moves {
+                let mut child = board.clone();
+                child.make_move(m, zobrist_constants);
+                if child.get_win_state() == attacker_win_result {
+                    winning_move = Some(m);
+                    break;
+                }
+                let child_key = child.to_packed_canonical();
+                if let Some(&cached) = self.tt.get(&child_key) {
+                    if cached.dn == 0 {
+                        winning_move = Some(m);
+                        break;
+                    }
+                }
+            }
+
+            Some((true, winning_move))
+        } else if root_pn.is_disproven() {
+            Some((false, None))
+        } else {
+            None
+        }
+    }
+
     /// Depth-First Proof-Number search with thresholds (MID algorithm)
     /// Incorporates:
     /// 1. Canonical 167-bit PackedBoardState transposition table keys

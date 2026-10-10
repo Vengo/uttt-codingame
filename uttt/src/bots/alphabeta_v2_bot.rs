@@ -1,4 +1,5 @@
 use crate::bots::Bot;
+use crate::dfpn::DfPnSolver;
 use crate::egtb::EgtbDatabase;
 use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult};
 use crate::opening_book::OpeningBook;
@@ -35,17 +36,22 @@ pub struct AlphaBetaV2Bot {
     killers: [[Option<GameMove>; 2]; MAX_PLY],
     book: OpeningBook,
     egtb: Option<EgtbDatabase>,
+    dfpn: DfPnSolver,
+    legal_lookup: Vec<Vec<GameMove>>,
 }
 
 impl AlphaBetaV2Bot {
     pub fn new() -> Self {
         let egtb = Some(EgtbDatabase::new());
+        let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
         AlphaBetaV2Bot {
             name: "AlphaBetaV2Bot".to_string(),
             tt: HashMap::with_capacity(1_000_000),
             killers: [[None; 2]; MAX_PLY],
             book: OpeningBook::new(),
             egtb,
+            dfpn: DfPnSolver::new(3_000),
+            legal_lookup,
         }
     }
 
@@ -272,6 +278,24 @@ impl AlphaBetaV2Bot {
         }
 
         if depth == 0 {
+            let my_supers = if board.x_to_move { board.x_supers } else { board.o_supers };
+            let my_has_threat = RESULT_MASKS.iter().any(|mask| (my_supers & mask).count_ones() == 2);
+            if my_has_threat {
+                let moves = board.get_legal_moves_fast();
+                for m in &moves {
+                    let parsed = parse_index(m.move_index);
+                    let sub = parsed.sub_board_index;
+                    let sq = parsed.sub_square_index;
+                    let my_bb = if board.x_to_move { board.xbb[sub] } else { board.obb[sub] };
+                    let new_my_bb = my_bb | (1 << sq);
+                    if RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask) {
+                        let new_supers = my_supers | (1 << sub);
+                        if RESULT_MASKS.iter().any(|mask| (new_supers & mask) == *mask) {
+                            return 100_000;
+                        }
+                    }
+                }
+            }
             let static_eval = Self::evaluate_board(board);
             return if board.x_to_move { static_eval } else { -static_eval };
         }
@@ -383,10 +407,21 @@ impl Bot for AlphaBetaV2Bot {
             }
         }
 
-        // 2. Reset killer table for the new search
+        // 2. Query DF-PN Solver at root in late game (>= 5 resolved subboards)
+        let resolved = (board.x_supers | board.o_supers | board.get_tied_mask()).count_ones();
+        if resolved >= 5 {
+            self.dfpn.max_nodes = 3_000;
+            if let Some((true, Some(winning_move))) = self.dfpn.solve_move(board, &self.legal_lookup, zobrist_constants) {
+                if legal_moves.iter().any(|m| m.move_index == winning_move.move_index) {
+                    return winning_move;
+                }
+            }
+        }
+
+        // 3. Reset killer table for the new search
         self.killers = [[None; 2]; MAX_PLY];
 
-        // 3. Iterative deepening minimax
+        // 4. Iterative deepening minimax
         let start = Instant::now();
         let deadline = start + time_limit;
         let mut sim_board = board.clone();

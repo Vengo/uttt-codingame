@@ -320,4 +320,98 @@ fn test_extract_opening_suite() {
     }
 }
 
+#[test]
+fn test_dfpn_solve_move_finds_winning_move() {
+    let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+
+    let mut solver = DfPnSolver::new(10_000);
+
+    // Board where X has subboards 0, 1 won, directed to subboard 2, with squares 0 and 1 occupied.
+    // Square 2 completes subboard 2 and wins the entire match!
+    let mut board = UltimateTicTacToeBoard::default();
+    board.x_supers = 3; // Subboards 0 and 1 won (0b000000011)
+    board.last_super_index = 2; // Directed to subboard 2
+    board.xbb[2] = 3; // squares 0 and 1 occupied in subboard 2
+    board.x_to_move = true;
+
+    let res = solver.solve_move(&board, &legal_lookup, &zobrist_constants);
+    assert!(res.is_some());
+    let (is_win, best_move) = res.unwrap();
+    assert!(is_win, "Should prove win for X");
+    assert!(best_move.is_some(), "Winning move should be identified");
+    let m = best_move.unwrap();
+    let parsed = uttt::uttt_trait_solving::parse_index(m.move_index);
+    assert_eq!(parsed.sub_board_index, 2);
+    assert_eq!(parsed.sub_square_index, 2, "Square 2 completes 3-in-a-row in subboard 2");
+}
+
+#[test]
+fn test_umcts_v3_superboard_priors_and_grandfather() {
+    use uttt::bots::Bot;
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+    let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
+
+    let mut bot = uttt::bots::UmctsV3Bot::new();
+
+    // Board where X has an immediate 1-ply winning move
+    let mut board = UltimateTicTacToeBoard::default();
+    board.x_supers = 3; // subboards 0, 1 won
+    board.last_super_index = 2; // directed to subboard 2
+    board.xbb[2] = 3; // squares 0, 1 occupied
+    board.x_to_move = true;
+
+    let chosen = bot.choose_move(&board, &legal_lookup, &zobrist_constants, std::time::Duration::from_millis(50));
+    let parsed = uttt::uttt_trait_solving::parse_index(chosen.move_index);
+    assert_eq!(parsed.sub_board_index, 2);
+    assert_eq!(parsed.sub_square_index, 2, "UmctsV3Bot must instantly find immediate game winning move");
+}
+
+#[test]
+fn test_alphabeta_v2_quiescence_finds_immediate_mate() {
+    use uttt::bots::Bot;
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+    let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
+
+    let mut bot = uttt::bots::AlphaBetaV2Bot::new();
+
+    let mut board = UltimateTicTacToeBoard::default();
+    board.x_supers = 3;
+    board.last_super_index = 2;
+    board.xbb[2] = 3;
+    board.x_to_move = true;
+
+    let chosen = bot.choose_move(&board, &legal_lookup, &zobrist_constants, std::time::Duration::from_millis(50));
+    let parsed = uttt::uttt_trait_solving::parse_index(chosen.move_index);
+    assert_eq!(parsed.sub_board_index, 2);
+    assert_eq!(parsed.sub_square_index, 2, "AlphaBetaV2Bot must find immediate winning move");
+}
+
+#[test]
+fn test_compare_mcts_iterations() {
+    use uttt::bots::Bot;
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+    let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
+
+    let mut v2 = uttt::bots::UmctsV2Bot::new();
+    let mut v3 = uttt::bots::UmctsV3Bot::new();
+
+    let mut board = UltimateTicTacToeBoard::default();
+    let moves = [40, 36, 12, 30];
+    for &m in &moves {
+        board.make_move(uttt::game_solving::GameMove { x_to_move: board.x_to_move, move_index: m }, &zobrist_constants);
+    }
+
+    let m2 = v2.choose_move(&board, &legal_lookup, &zobrist_constants, std::time::Duration::from_millis(100));
+    let m3 = v3.choose_move(&board, &legal_lookup, &zobrist_constants, std::time::Duration::from_millis(100));
+
+    let mut empty_board = UltimateTicTacToeBoard::default();
+    let m2_empty = v2.choose_move(&empty_board, &legal_lookup, &zobrist_constants, std::time::Duration::from_millis(50));
+    let m3_empty = v3.choose_move(&empty_board, &legal_lookup, &zobrist_constants, std::time::Duration::from_millis(50));
+    assert!(m2.move_index < 81);
+    assert!(m3.move_index < 81);
+    assert!(m2_empty.move_index < 81);
+    assert!(m3_empty.move_index < 81);
+}
+
 

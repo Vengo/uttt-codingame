@@ -1,4 +1,5 @@
 use crate::bots::Bot;
+use crate::dfpn::DfPnSolver;
 use crate::egtb::EgtbDatabase;
 use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult, IdentityHasherBuilder};
 use crate::opening_book::OpeningBook;
@@ -7,7 +8,7 @@ use crate::uttt_trait_solving::{
 };
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -46,41 +47,35 @@ impl UmctsV3Node {
         }
     }
 
-    fn score_move_quick(board: &UltimateTicTacToeBoard, m: GameMove) -> i32 {
-        let is_x = m.x_to_move;
+    pub fn score_move_quick(board: &UltimateTicTacToeBoard, m: GameMove) -> i32 {
         let parsed = parse_index(m.move_index);
         let sub = parsed.sub_board_index;
         let sq = parsed.sub_square_index;
 
-        let my_bb = if is_x { board.xbb[sub] } else { board.obb[sub] };
-        let opp_bb = if is_x { board.obb[sub] } else { board.xbb[sub] };
-        let new_my_bb = my_bb | (1 << sq);
+        let mut priority = 0i32;
 
-        // Subboard win
-        if RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask) {
-            return 100;
+        if sub == 4 {
+            priority += 50;
+        }
+        if sq == 4 {
+            priority += 40;
+        } else if matches!(sq, 0 | 2 | 6 | 8) {
+            priority += 20;
         }
 
-        // Subboard block
-        let sq_bit = 1u16 << sq;
-        for mask in RESULT_MASKS.iter() {
-            if (mask & sq_bit) != 0 && (opp_bb & mask).count_ones() == 2 {
-                return 60;
+        let is_x = m.x_to_move;
+        let my_bb = if is_x { board.xbb[sub] } else { board.obb[sub] };
+        let new_my_bb = my_bb | (1 << sq);
+        if RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask) {
+            priority += 80;
+            let my_supers = if is_x { board.x_supers } else { board.o_supers };
+            let new_supers = my_supers | (1 << sub);
+            if RESULT_MASKS.iter().any(|mask| (new_supers & mask) == *mask) {
+                priority += 10_000;
             }
         }
 
-        // Avoid sending to completed board (free choice)
-        let complete = board.x_supers | board.o_supers | board.get_tied_mask();
-        if (complete & (1 << sq)) != 0 {
-            return -20;
-        }
-
-        // Center square bonus
-        if sq == 4 {
-            return 15;
-        }
-
-        0
+        priority
     }
 }
 
@@ -91,11 +86,14 @@ pub struct UmctsV3Bot {
     rng: SmallRng,
     book: OpeningBook,
     egtb: Option<EgtbDatabase>,
+    dfpn: DfPnSolver,
+    legal_lookup: Vec<Vec<GameMove>>,
 }
 
 impl UmctsV3Bot {
     pub fn new() -> Self {
         let egtb = Some(EgtbDatabase::new());
+        let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
         UmctsV3Bot {
             name: "UmctsV3Bot".to_string(),
             node_store: HashMap::with_capacity_and_hasher(
@@ -106,7 +104,13 @@ impl UmctsV3Bot {
             rng: SmallRng::from_entropy(),
             book: OpeningBook::new(),
             egtb,
+            dfpn: DfPnSolver::new(3_000),
+            legal_lookup,
         }
+    }
+
+    pub fn node_store(&self) -> &HashMap<u64, UmctsV3Node, IdentityHasherBuilder> {
+        &self.node_store
     }
 
     #[inline(always)]
@@ -152,7 +156,14 @@ impl UmctsV3Bot {
             }
         }
 
-        best_child.or_else(|| parent.children.first().copied())
+        best_child.or_else(|| {
+            parent
+                .children
+                .iter()
+                .max_by_key(|&(_, h)| self.node_store.get(h).map_or(0, |c| c.visits))
+                .copied()
+                .or_else(|| parent.children.first().copied())
+        })
     }
 
     fn simulate(
@@ -161,25 +172,12 @@ impl UmctsV3Bot {
         rng: &mut SmallRng,
     ) -> GameResult {
         let mut depth = 0;
-        while board.get_win_state() == GameResult::Unresolved && depth < 50 {
+        while board.get_win_state() == GameResult::Unresolved && depth < 60 {
             let moves = board.get_legal_moves_fast();
             if moves.is_empty() {
                 break;
             }
-            let chosen = if rng.gen_bool(0.70) {
-                let mut best_m = moves[0];
-                let mut best_s = i32::MIN;
-                for &m in &moves {
-                    let s = UmctsV3Node::score_move_quick(&board, m);
-                    if s > best_s {
-                        best_s = s;
-                        best_m = m;
-                    }
-                }
-                best_m
-            } else {
-                *moves.choose(rng).unwrap()
-            };
+            let chosen = *moves.choose(rng).unwrap();
             board.make_move(chosen, zobrist_constants);
             depth += 1;
         }
@@ -291,6 +289,17 @@ impl Bot for UmctsV3Bot {
             }
         }
 
+        // 2. Query DF-PN Solver at root in late game (>= 5 resolved subboards)
+        let resolved = (board.x_supers | board.o_supers | board.get_tied_mask()).count_ones();
+        if resolved >= 5 {
+            self.dfpn.max_nodes = 3_000;
+            if let Some((true, Some(winning_move))) = self.dfpn.solve_move(board, &self.legal_lookup, zobrist_constants) {
+                if root_moves.iter().any(|m| m.move_index == winning_move.move_index) {
+                    return winning_move;
+                }
+            }
+        }
+
         self.node_store.clear();
         self.unmove_queue.clear();
 
@@ -353,7 +362,7 @@ impl Bot for UmctsV3Bot {
                             Vec::new()
                         };
 
-                        let mut child_node = UmctsV3Node::new(&sim_board, child_moves);
+                        let mut child_node = UmctsV3Node::new(&sim_board, child_moves.clone());
 
                         if child_win_state != GameResult::Unresolved {
                             child_node.proof = match child_win_state {
@@ -375,35 +384,49 @@ impl Bot for UmctsV3Bot {
                                 _ => ProofStatus::Unproven,
                             };
                         } else {
-                            // In-tree EGTB Probing at expansion
-                            let resolved = (sim_board.x_supers
-                                | sim_board.o_supers
-                                | sim_board.get_tied_mask())
-                            .count_ones();
+                            // 1. 2-Ply Grandfather refutation check:
+                            // Can the opponent (whose turn it now is from sim_board) immediately win the game?
+                            let opp_supers = if m.x_to_move { sim_board.o_supers } else { sim_board.x_supers };
+                            let opp_has_threat = RESULT_MASKS.iter().any(|mask| (opp_supers & mask).count_ones() == 2);
+                            let opp_can_win_immediately = opp_has_threat && child_moves.iter().any(|&opp_m| {
+                                UmctsV3Node::score_move_quick(&sim_board, opp_m) >= 10_000
+                            });
 
-                            if resolved >= 7 {
-                                if let Some(ref egtb) = self.egtb {
-                                    if let Some(res) = egtb.probe(&sim_board, zobrist_constants) {
-                                        egtb_result = Some(res);
-                                        let active_is_p1 = sim_board.x_to_move;
-                                        child_node.proof = match res {
-                                            GameResult::P1Win => {
-                                                if active_is_p1 {
-                                                    ProofStatus::ProvenWin
-                                                } else {
-                                                    ProofStatus::ProvenLoss
+                            if opp_can_win_immediately {
+                                // Opponent has an immediate winning response from sim_board!
+                                // From child's perspective (opponent to move), this is a ProvenWin.
+                                child_node.proof = ProofStatus::ProvenWin;
+                            } else {
+                                // 2. In-tree EGTB Probing (resolved >= 7)
+                                let resolved = (sim_board.x_supers
+                                    | sim_board.o_supers
+                                    | sim_board.get_tied_mask())
+                                .count_ones();
+
+                                if resolved >= 7 {
+                                    if let Some(ref egtb) = self.egtb {
+                                        if let Some(res) = egtb.probe(&sim_board, zobrist_constants) {
+                                            egtb_result = Some(res);
+                                            let active_is_p1 = sim_board.x_to_move;
+                                            child_node.proof = match res {
+                                                GameResult::P1Win => {
+                                                    if active_is_p1 {
+                                                        ProofStatus::ProvenWin
+                                                    } else {
+                                                        ProofStatus::ProvenLoss
+                                                    }
                                                 }
-                                            }
-                                            GameResult::P2Win => {
-                                                if !active_is_p1 {
-                                                    ProofStatus::ProvenWin
-                                                } else {
-                                                    ProofStatus::ProvenLoss
+                                                GameResult::P2Win => {
+                                                    if !active_is_p1 {
+                                                        ProofStatus::ProvenWin
+                                                    } else {
+                                                        ProofStatus::ProvenLoss
+                                                    }
                                                 }
-                                            }
-                                            GameResult::Tie => ProofStatus::ProvenDraw,
-                                            GameResult::Unresolved => ProofStatus::Unproven,
-                                        };
+                                                GameResult::Tie => ProofStatus::ProvenDraw,
+                                                GameResult::Unresolved => ProofStatus::Unproven,
+                                            };
+                                        }
                                     }
                                 }
                             }
@@ -416,8 +439,17 @@ impl Bot for UmctsV3Bot {
                 }
             }
 
-            // 3. Simulation (skipped if terminal or solved by EGTB)
-            let result = if let Some(res) = egtb_result {
+            // 3. Simulation (skipped if terminal, solved by EGTB, or proven by tactical/DF-PN check)
+            let curr_proof = self.node_store.get(&curr_hash).map_or(ProofStatus::Unproven, |n| n.proof);
+            let result = if curr_proof != ProofStatus::Unproven {
+                let active_is_p1 = sim_board.x_to_move;
+                match curr_proof {
+                    ProofStatus::ProvenWin => if active_is_p1 { GameResult::P1Win } else { GameResult::P2Win },
+                    ProofStatus::ProvenLoss => if active_is_p1 { GameResult::P2Win } else { GameResult::P1Win },
+                    ProofStatus::ProvenDraw => GameResult::Tie,
+                    ProofStatus::Unproven => unreachable!(),
+                }
+            } else if let Some(res) = egtb_result {
                 res
             } else if sim_board.get_win_state() != GameResult::Unresolved {
                 sim_board.get_win_state()
@@ -490,7 +522,7 @@ impl Bot for UmctsV3Bot {
             }
         }
 
-        root_node
+        let unrefuted_children: Vec<_> = root_node
             .children
             .iter()
             .filter(|&(action, child_hash)| {
@@ -500,10 +532,21 @@ impl Bot for UmctsV3Bot {
                         .get(child_hash)
                         .map_or(true, |c| c.proof != ProofStatus::ProvenWin)
             })
+            .collect();
+
+        if let Some(&&(action, _)) = unrefuted_children.iter().max_by_key(|&&(_, child_hash)| {
+            self.node_store.get(child_hash).map_or(0, |c| c.visits)
+        }) {
+            return action;
+        }
+
+        // Fallback if all children were refuted: pick child with highest visits
+        root_node
+            .children
+            .iter()
+            .filter(|&(action, _)| root_moves.iter().any(|m| m.move_index == action.move_index))
             .max_by_key(|&(_, child_hash)| {
-                self.node_store
-                    .get(child_hash)
-                    .map_or(0, |c| c.visits)
+                self.node_store.get(child_hash).map_or(0, |c| c.visits)
             })
             .map(|&(action, _)| action)
             .unwrap_or(root_moves[0])

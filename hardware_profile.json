@@ -3,26 +3,26 @@
   "cache_profile": {
     "small_table_entries": 50000,
     "small_table_kb": 1220,
-    "small_table_latency_ns": 10.962765,
+    "small_table_latency_ns": 3.402283,
     "large_table_entries": 2000000,
     "large_table_kb": 48828,
-    "large_table_latency_ns": 29.731723,
-    "cache_slowdown_factor": 2.7120642465655336,
-    "summary": "L3 Cache-Resident table: 11.0 ns/lookup vs DRAM Spilling table: 29.7 ns/lookup (2.71x slowdown factor)"
+    "large_table_latency_ns": 21.405603,
+    "cache_slowdown_factor": 6.291541003496769,
+    "summary": "L3 Cache-Resident table: 3.4 ns/lookup vs DRAM Spilling table: 21.4 ns/lookup (6.29x slowdown factor)"
   },
   "allocator_profile": {
     "total_allocations": 200000,
-    "elapsed_ms": 2.1476770000000003,
-    "allocations_per_sec": 93123872.91012567,
-    "ns_per_allocation": 10.738385,
-    "summary": "93.12 million allocations/sec (10.7 ns per heap alloc/free)"
+    "elapsed_ms": 2.089988,
+    "allocations_per_sec": 95694329.34543164,
+    "ns_per_allocation": 10.44994,
+    "summary": "95.69 million allocations/sec (10.4 ns per heap alloc/free)"
   },
   "search_throughput": [
     {
       "bot_name": "Pure Random Simulation (No Tree Alloc)",
-      "rollouts_per_sec": 220167.3403786482,
-      "average_depth": 56.89134660804476,
-      "summary": "220167 rollouts/sec (avg depth: 56.9 plies/rollout)"
+      "rollouts_per_sec": 219049.98123537292,
+      "average_depth": 56.863904461041216,
+      "summary": "219050 rollouts/sec (avg depth: 56.9 plies/rollout)"
     }
   ]
 }

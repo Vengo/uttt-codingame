@@ -158,6 +158,40 @@ impl UltimateTicTacToeBoard {
         };
         x_consts
     }
+
+    pub fn get_legal_moves_fast(&self) -> Vec<GameMove> {
+        let complete_bbs = self.x_supers | self.o_supers | self.get_tied_mask();
+        let mut moves = Vec::with_capacity(32);
+        if (self.last_super_index >= 9) || ((complete_bbs & (1 << self.last_super_index)) != 0) {
+            for subboard in 0..9usize {
+                if (complete_bbs & (1 << subboard)) == 0 {
+                    let occupied = self.xbb[subboard] | self.obb[subboard];
+                    let base = (subboard as u8) * 9;
+                    for sq in 0..9u8 {
+                        if (occupied & (1 << sq)) == 0 {
+                            moves.push(GameMove {
+                                x_to_move: self.x_to_move,
+                                move_index: base + sq,
+                            });
+                        }
+                    }
+                }
+            }
+        } else {
+            let subboard = self.last_super_index as usize;
+            let occupied = self.xbb[subboard] | self.obb[subboard];
+            let base = self.last_super_index * 9;
+            for sq in 0..9u8 {
+                if (occupied & (1 << sq)) == 0 {
+                    moves.push(GameMove {
+                        x_to_move: self.x_to_move,
+                        move_index: base + sq,
+                    });
+                }
+            }
+        }
+        moves
+    }
 }
 
 impl AlphaBetaCompatible<u64, UltimateTicTacToeUnmove, ZobristConstants>

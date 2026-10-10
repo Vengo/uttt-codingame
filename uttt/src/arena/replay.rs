@@ -26,6 +26,8 @@ pub struct GameReplay {
     pub result: String,
     pub total_turns: usize,
     pub total_time_ms: f64,
+    #[serde(default)]
+    pub initial_board_display: Option<String>,
     pub moves: Vec<MoveRecord>,
 }
 
@@ -38,6 +40,7 @@ impl GameReplay {
             result: "In Progress".to_string(),
             total_turns: 0,
             total_time_ms: 0.0,
+            initial_board_display: None,
             moves: Vec::new(),
         }
     }

@@ -202,7 +202,17 @@ fn run_match_cmd(args: &[String]) {
     let legal_moves = engine.get_move_ordering_array();
     let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
 
-    let runner = MatchRunner::new(Duration::from_millis(time_ms)).with_replays(!replay_path.is_empty());
+    let use_openings = args.contains(&"--openings".to_string()) || args.contains(&"--book-openings".to_string());
+    let opening_depth = parse_arg_usize(args, "--opening-depth", 2);
+
+    let mut runner = MatchRunner::new(Duration::from_millis(time_ms)).with_replays(!replay_path.is_empty());
+    if use_openings {
+        let book = uttt::opening_book::OpeningBook::new();
+        let suite = book.extract_opening_suite((games / 2).max(5), opening_depth, &legal_moves, &zobrist_constants);
+        println!("Opening suite:  Loaded {} unique positions (depth {} plies)", suite.len(), (opening_depth / 2).max(1) * 2);
+        runner = runner.with_openings(suite);
+    }
+
     let res = runner.run_match(
         bot1.as_mut(),
         bot2.as_mut(),
@@ -540,6 +550,8 @@ fn run_benchmark_cmd(args: &[String]) {
     let mut target_rd = 35.0f64;
     let mut time_ms = 30u64;
     let mut max_games = 200usize;
+    let mut use_openings = false;
+    let mut opening_depth = 2usize;
 
     let mut i = 0;
     while i < args.len() {
@@ -574,6 +586,15 @@ fn run_benchmark_cmd(args: &[String]) {
                     i += 1;
                 }
             }
+            "--openings" | "--book-openings" => {
+                use_openings = true;
+            }
+            "--opening-depth" => {
+                if i + 1 < args.len() {
+                    opening_depth = args[i + 1].parse().unwrap_or(2);
+                    i += 1;
+                }
+            }
             _ => {}
         }
         i += 1;
@@ -593,6 +614,7 @@ fn run_benchmark_cmd(args: &[String]) {
     println!("Target RD:      <= {:.1} (Tight error bounds: 95% CI <= ±{:.1} Elo)", target_rd, 1.96 * target_rd);
     println!("Time Limit:     {} ms/move", time_ms);
     println!("Max Games:      {}", max_games);
+    println!("Opening Suite:  {}", if use_openings { format!("Enabled (target depth: {} plies)", (opening_depth / 2).max(1) * 2) } else { "Disabled (empty board)".to_string() });
     println!("=======================================================\n");
 
     let engine = TicTacToeEngine::new();
@@ -620,6 +642,20 @@ fn run_benchmark_cmd(args: &[String]) {
     let prior_player = GlickoPlayer::default();
     let mut matches = Vec::new();
 
+    let book = uttt::opening_book::OpeningBook::new();
+    let opening_suite = if use_openings {
+        let suite = book.extract_opening_suite(
+            (max_games / 2).max(10),
+            opening_depth,
+            &legal_moves,
+            &zobrist_constants,
+        );
+        println!("Loaded opening suite: {} unique positions", suite.len());
+        suite
+    } else {
+        vec![UltimateTicTacToeBoard::default()]
+    };
+
     let mut wins = 0usize;
     let mut losses = 0usize;
     let mut draws = 0usize;
@@ -630,11 +666,12 @@ fn run_benchmark_cmd(args: &[String]) {
     let mut pair = 0usize;
     while matches.len() < max_games && current_glicko.rd > target_rd {
         pair += 1;
+        let initial_board = &opening_suite[(pair - 1) % opening_suite.len()];
 
         // Game 1: Candidate as X (Player 1), Baseline as O (Player 2)
         candidate_bot.reset();
         baseline_bot.reset();
-        let outcome1 = game_runner.play(candidate_bot.as_mut(), baseline_bot.as_mut(), &legal_moves, &zobrist_constants);
+        let outcome1 = game_runner.play_from_position(candidate_bot.as_mut(), baseline_bot.as_mut(), initial_board, &legal_moves, &zobrist_constants);
         let score1 = match outcome1.0.outcome {
             GameOutcome::XWin | GameOutcome::OForfeit(_) => {
                 wins += 1;
@@ -658,7 +695,7 @@ fn run_benchmark_cmd(args: &[String]) {
         // Game 2: Baseline as X (Player 1), Candidate as O (Player 2)
         candidate_bot.reset();
         baseline_bot.reset();
-        let outcome2 = game_runner.play(baseline_bot.as_mut(), candidate_bot.as_mut(), &legal_moves, &zobrist_constants);
+        let outcome2 = game_runner.play_from_position(baseline_bot.as_mut(), candidate_bot.as_mut(), initial_board, &legal_moves, &zobrist_constants);
         let score2 = match outcome2.0.outcome {
             GameOutcome::OWin | GameOutcome::XForfeit(_) => {
                 wins += 1;

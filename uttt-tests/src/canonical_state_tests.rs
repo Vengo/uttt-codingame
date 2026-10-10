@@ -298,4 +298,26 @@ fn test_systematic_egtb_tier9_and_tier8() {
     let _ = std::fs::remove_file(&temp_egtb_path);
 }
 
+#[test]
+fn test_extract_opening_suite() {
+    let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
+    let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+
+    let book = uttt::opening_book::OpeningBook::new();
+    let suite = book.extract_opening_suite(10, 2, &legal_lookup, &zobrist_constants);
+
+    assert!(!suite.is_empty(), "Opening suite must return non-empty positions");
+    assert!(suite.len() <= 10, "Opening suite size must not exceed requested target count");
+
+    let mut hashes = std::collections::HashSet::new();
+    for board in &suite {
+        // Invariant 1: even ply implies X to move
+        assert!(board.x_to_move, "Even ply openings must have X to move");
+        // Invariant 2: game must be unresolved
+        assert_eq!(board.get_win_state(), GameResult::Unresolved, "Opening must be unresolved");
+        // Invariant 3: uniqueness
+        assert!(hashes.insert(board.hash_val()), "Opening suite positions must be distinct");
+    }
+}
+
 

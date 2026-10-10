@@ -50,10 +50,27 @@ impl Game {
         legal_moves_lookup: &[Vec<GameMove>],
         zobrist_constants: &ZobristConstants,
     ) -> (GameStats, Option<GameReplay>) {
+        self.play_from_position(
+            bot_x,
+            bot_o,
+            &UltimateTicTacToeBoard::default(),
+            legal_moves_lookup,
+            zobrist_constants,
+        )
+    }
+
+    pub fn play_from_position(
+        &self,
+        bot_x: &mut dyn Bot,
+        bot_o: &mut dyn Bot,
+        initial_board: &UltimateTicTacToeBoard,
+        legal_moves_lookup: &[Vec<GameMove>],
+        zobrist_constants: &ZobristConstants,
+    ) -> (GameStats, Option<GameReplay>) {
         bot_x.reset();
         bot_o.reset();
 
-        let mut board = UltimateTicTacToeBoard::default();
+        let mut board = initial_board.clone();
         let mut turn = 0;
         let mut total_time_x = 0.0;
         let mut turns_x = 0;
@@ -62,7 +79,9 @@ impl Game {
 
         let game_id = format!("{}_vs_{}_{}", bot_x.name(), bot_o.name(), Instant::now().elapsed().as_nanos());
         let mut replay = if self.record_replay {
-            Some(GameReplay::new(&game_id, bot_x.name(), bot_o.name()))
+            let mut r = GameReplay::new(&game_id, bot_x.name(), bot_o.name());
+            r.initial_board_display = Some(initial_board.display());
+            Some(r)
         } else {
             None
         };

@@ -2,7 +2,7 @@ use crate::arena::elo::EloCalculator;
 use crate::arena::game::{Game, GameOutcome, GameStats};
 use crate::bots::Bot;
 use crate::game_solving::GameMove;
-use crate::uttt_trait_solving::ZobristConstants;
+use crate::uttt_trait_solving::{UltimateTicTacToeBoard, ZobristConstants};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -22,6 +22,7 @@ pub struct MatchResult {
 pub struct MatchRunner {
     pub time_limit_per_move: Duration,
     pub record_replays: bool,
+    pub openings: Vec<UltimateTicTacToeBoard>,
 }
 
 impl MatchRunner {
@@ -29,11 +30,17 @@ impl MatchRunner {
         MatchRunner {
             time_limit_per_move,
             record_replays: false,
+            openings: Vec::new(),
         }
     }
 
     pub fn with_replays(mut self, record: bool) -> Self {
         self.record_replays = record;
+        self
+    }
+
+    pub fn with_openings(mut self, openings: Vec<UltimateTicTacToeBoard>) -> Self {
+        self.openings = openings;
         self
     }
 
@@ -56,11 +63,18 @@ impl MatchRunner {
         let bot2_name = bot2.name().to_string();
 
         let mut elo_calc = elo;
+        let default_board = UltimateTicTacToeBoard::default();
 
         for game_idx in 0..num_games {
+            let initial_board = if !self.openings.is_empty() {
+                &self.openings[(game_idx / 2) % self.openings.len()]
+            } else {
+                &default_board
+            };
+
             let (stats, _replay) = if game_idx % 2 == 0 {
                 // Bot 1 plays X, Bot 2 plays O
-                let (s, r) = game_runner.play(bot1, bot2, legal_moves_lookup, zobrist_constants);
+                let (s, r) = game_runner.play_from_position(bot1, bot2, initial_board, legal_moves_lookup, zobrist_constants);
                 match &s.outcome {
                     GameOutcome::XWin | GameOutcome::OForfeit(_) => {
                         bot1_wins += 1;
@@ -84,7 +98,7 @@ impl MatchRunner {
                 (s, r)
             } else {
                 // Bot 2 plays X, Bot 1 plays O
-                let (s, r) = game_runner.play(bot2, bot1, legal_moves_lookup, zobrist_constants);
+                let (s, r) = game_runner.play_from_position(bot2, bot1, initial_board, legal_moves_lookup, zobrist_constants);
                 match &s.outcome {
                     GameOutcome::XWin | GameOutcome::OForfeit(_) => {
                         bot2_wins += 1;

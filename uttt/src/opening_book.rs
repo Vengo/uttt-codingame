@@ -351,4 +351,124 @@ impl OpeningBook {
             zobrist_constants,
         );
     }
+
+    /// Extracts a suite of distinct opening positions from the opening book at an even ply depth.
+    /// Uses BFS exploration branching on book moves and top legal moves, with D4 symmetry deduplication
+    /// and fallback supplementation if the book has fewer entries than requested.
+    pub fn extract_opening_suite(
+        &self,
+        target_count: usize,
+        target_ply: usize,
+        legal_moves_lookup: &[Vec<GameMove>],
+        zobrist_constants: &ZobristConstants,
+    ) -> Vec<UltimateTicTacToeBoard> {
+        let target_ply = (target_ply / 2).max(1) * 2; // Enforce even plies (2, 4, 6...)
+        let mut suite = Vec::new();
+        let mut visited_hashes = std::collections::HashSet::new();
+
+        let root = UltimateTicTacToeBoard::default();
+        let (c_root, _) = SymmetryEngine::canonical_form(&root, zobrist_constants);
+        visited_hashes.insert(c_root.full_hash());
+
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back((root, 0usize));
+
+        while let Some((board, depth)) = queue.pop_front() {
+            if board.get_win_state() != GameResult::Unresolved {
+                continue;
+            }
+
+            if depth == target_ply {
+                suite.push(board);
+                if suite.len() >= target_count {
+                    break;
+                }
+                continue;
+            }
+
+            // At depth < target_ply, collect candidate moves:
+            // 1. The book move (if position is in self.entries)
+            let (c_board, sym) = SymmetryEngine::canonical_form(&board, zobrist_constants);
+            let c_hash = c_board.full_hash();
+
+            let mut candidate_moves = Vec::new();
+
+            if let Some(&(c_move_idx, _)) = self.entries.get(&c_hash) {
+                let actual_move_idx = sym.inverse().transform_move_index(c_move_idx);
+                candidate_moves.push(GameMove {
+                    x_to_move: board.x_to_move,
+                    move_index: actual_move_idx,
+                });
+            }
+
+            // 2. Also add top 2 legal moves from legal_moves_lookup
+            let legal_moves = if !legal_moves_lookup.is_empty() {
+                board.get_legal_moves(legal_moves_lookup)
+            } else {
+                board.get_legal_moves_fast()
+            };
+
+            for m in legal_moves {
+                if !candidate_moves.iter().any(|c| c.move_index == m.move_index) {
+                    candidate_moves.push(m);
+                    if candidate_moves.len() >= 3 {
+                        break;
+                    }
+                }
+            }
+
+            for m in candidate_moves {
+                let mut child = board.clone();
+                child.make_move(m, zobrist_constants);
+                let (canon_child, _) = SymmetryEngine::canonical_form(&child, zobrist_constants);
+                if visited_hashes.insert(canon_child.full_hash()) {
+                    queue.push_back((child, depth + 1));
+                }
+            }
+        }
+
+        // Fallback supplementation if BFS yielded fewer than target_count positions
+        if suite.len() < target_count {
+            use rand::rngs::SmallRng;
+            use rand::seq::SliceRandom;
+            use rand::SeedableRng;
+
+            let mut rng = SmallRng::seed_from_u64(0x42_9E37_79B9);
+            let max_attempts = target_count * 20;
+            let mut attempts = 0;
+
+            while suite.len() < target_count && attempts < max_attempts {
+                attempts += 1;
+                let mut sim_board = UltimateTicTacToeBoard::default();
+                let mut valid = true;
+
+                for _ in 0..target_ply {
+                    if sim_board.get_win_state() != GameResult::Unresolved {
+                        valid = false;
+                        break;
+                    }
+                    let moves = sim_board.get_legal_moves_fast();
+                    if moves.is_empty() {
+                        valid = false;
+                        break;
+                    }
+                    let chosen = *moves.choose(&mut rng).unwrap();
+                    sim_board.make_move(chosen, zobrist_constants);
+                }
+
+                if valid && sim_board.get_win_state() == GameResult::Unresolved {
+                    let (canon_sim, _) = SymmetryEngine::canonical_form(&sim_board, zobrist_constants);
+                    if visited_hashes.insert(canon_sim.full_hash()) {
+                        suite.push(sim_board);
+                    }
+                }
+            }
+        }
+
+        if suite.is_empty() {
+            suite.push(UltimateTicTacToeBoard::default());
+        }
+
+        suite
+    }
 }

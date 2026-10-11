@@ -30,6 +30,7 @@ from ml.batched_mcts import run_batched_gpu_mcts
 from ml.replay_buffer import ContiguousStratifiedReplayBuffer
 from ml.rust_mcts_worker import RustMctsWorker
 from ml.export_int8 import export_model_int8
+from ml.parallel_mirror_eval import mine_interesting_positions, run_parallel_mirror_tournament
 
 
 def get_gpu_telemetry(device: str) -> Dict[str, any]:
@@ -214,8 +215,8 @@ def run_champion_challenger(
     parallel_games: int = 1024,
     mcts_simulations: int = 800,
     moves_per_cycle: int = 40,
-    eval_games: int = 40,
-    eval_sims: int = 200,
+    eval_pairs: int = 1024,
+    eval_sims: int = 100,
     train_epochs: int = 3,
     lr: float = 1e-3,
     promote_threshold: float = 0.55,
@@ -225,11 +226,13 @@ def run_champion_challenger(
     frontend_status: Optional[str] = "../uttt-frontend/training_status.json",
     test_mode: bool = False,
 ):
+    total_eval_games = eval_pairs * 2
     if not test_mode:
-        # Enforce statistical significance in production tournaments
-        if eval_games < 40:
-            print(f"Notice: Setting gating evaluation games to 40 (was {eval_games}) for statistical significance.")
-            eval_games = 40
+        # Enforce statistical significance in production tournaments (>= 1,024 games)
+        if eval_pairs < 20:
+            print(f"Notice: Setting gating evaluation pairs to 1024 (2048 games, was {eval_pairs}) for statistical significance.")
+            eval_pairs = 1024
+            total_eval_games = 2048
         if promote_threshold < 0.55:
             print(f"Notice: Enforcing strict promotion threshold at >= 0.55 (requested {promote_threshold}).")
             promote_threshold = 0.55
@@ -253,7 +256,8 @@ def run_champion_challenger(
     print(f"  MCTS Simulations per Move: {mcts_simulations} (Deep AlphaZero)")
     print(f"  Moves per Self-Play Cycle: {moves_per_cycle}")
     print(f"  Replay Buffer Capacity: {buffer_capacity:,} packed states")
-    print(f"  Evaluation Gating Games: {eval_games} (Promo Threshold: {promote_threshold*100:.0f}%)")
+    print(f"  Evaluation Gating Match: {total_eval_games} mirror games ({eval_pairs} paired positions, {eval_sims} sims/move)")
+    print(f"  Promotion Threshold: {promote_threshold*100:.0f}% win rate")
     print("============================================================")
 
     initial_ckpt = "ml/model_checkpoint.pt"
@@ -340,7 +344,8 @@ def run_champion_challenger(
 
             # Advance moves with auto temperature schedule:
             # Plies <= 20: T = 1.0; Plies > 20: T = 0.5 (T NEVER drops to 0 in self-play!)
-            new_finished = worker.advance_moves(temperature=0.0)
+            temp = 1.0 if move_step <= 20 else 0.5
+            new_finished = worker.advance_moves(temperature=temp)
             total_finished_states += new_finished
 
             t_move_end = time.time()
@@ -424,35 +429,56 @@ def run_champion_challenger(
         torch.save({"model_state_dict": challenger.state_dict()}, challenger_path)
 
         # ---------------------------------------------------------------------
-        # Phase 3: Evaluation Match (Challenger vs Champion)
+        # Phase 3: Parallel Mirror Evaluation Match (Challenger vs Champion)
         # ---------------------------------------------------------------------
-        print(f"\n⚔️  [Phase 3/3] Arena Gating: Challenger vs Champion ({eval_games} games, {eval_sims} sims)...")
+        print(f"\n⚔️  [Phase 3/3] Arena Gating: Parallel Mirror Tournament ({total_eval_games} games / {eval_pairs} pairs, {eval_sims} sims)...")
         status_data.update({
             "phase": "evaluating",
-            "phase_description": f"Playing {eval_games}-game gating match: Challenger vs Champion",
+            "phase_description": f"Mining {eval_pairs} positions & running {total_eval_games}-game mirror tournament",
             "training_loss": round(last_loss, 4),
             "gpu_telemetry": get_gpu_telemetry(device),
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         })
         write_status(status_file, frontend_status, status_data)
 
-        chal_wins, champ_wins, draws = play_eval_match(
-            model_challenger=challenger,
-            model_champion=champion,
-            num_games=eval_games,
-            mcts_sims=eval_sims,
+        t_mine_start = time.time()
+        positions = mine_interesting_positions(
+            challenger=challenger,
+            champion=champion,
+            num_positions=eval_pairs,
             device=device,
         )
+        print(f"  Mined {len(positions)} high-divergence tactical positions in {time.time() - t_mine_start:.2f}s")
 
-        total_decisive = chal_wins + champ_wins + draws
-        win_rate = (chal_wins + 0.5 * draws) / max(1, total_decisive)
-        print(f"  Match Result: Challenger {chal_wins}W - {champ_wins}L - {draws}D (Win Rate: {win_rate*100:.1f}%)")
+        def mirror_progress_cb(info: dict):
+            status_data.update({
+                "phase_description": f"Mirror Tournament Ply {info['ply']}: {info['finished_games']}/{info['total_games']} finished ({info['evals_per_second']:,.0f} evals/s)",
+                "gpu_evals_per_sec": round(info['evals_per_second']),
+                "gpu_telemetry": get_gpu_telemetry(device),
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
+            write_status(status_file, frontend_status, status_data)
 
-        # Elo calculation
-        delta_elo = 400.0 * (win_rate - 0.5)
+        tourney_res = run_parallel_mirror_tournament(
+            challenger=challenger,
+            champion=champion,
+            positions=positions,
+            num_sims=eval_sims,
+            device=device,
+            progress_callback=mirror_progress_cb,
+        )
+
+        chal_wins = tourney_res.challenger_wins
+        champ_wins = tourney_res.champion_wins
+        draws = tourney_res.draws
+        win_rate = tourney_res.win_rate
+        delta_elo = tourney_res.delta_elo
+        promoted = tourney_res.promoted
         challenger_elo = meta["champion_elo"] + delta_elo
 
-        promoted = win_rate >= promote_threshold
+        print(f"  Match Result: Challenger {chal_wins}W - {champ_wins}L - {draws}D (Win Rate: {win_rate*100:.2f}% ± {tourney_res.margin_of_error*100:.2f}%)")
+        print(f"  Pairwise Breakdown: {tourney_res.challenger_double_wins} Challenger Double Wins (2-0) | {tourney_res.champion_double_wins} Champion Double Wins (0-2) | {tourney_res.symmetrical_splits} Splits")
+        print(f"  Tournament Completed: {tourney_res.total_games} games in {tourney_res.elapsed_seconds:.2f}s ({tourney_res.evals_per_second:,.0f} evals/s)")
 
         if promoted:
             meta["generation"] += 1
@@ -491,8 +517,15 @@ def run_champion_challenger(
             "generation": meta["generation"],
             "champion_elo": round(meta["champion_elo"], 1),
             "challenger_elo": round(challenger_elo, 1),
-            "win_rate": round(win_rate, 3),
+            "win_rate": round(win_rate, 4),
+            "margin_of_error": round(tourney_res.margin_of_error, 4),
             "match_score": f"{chal_wins}W-{champ_wins}L-{draws}D",
+            "total_games": tourney_res.total_games,
+            "total_pairs": tourney_res.total_pairs,
+            "challenger_double_wins": tourney_res.challenger_double_wins,
+            "champion_double_wins": tourney_res.champion_double_wins,
+            "symmetrical_splits": tourney_res.symmetrical_splits,
+            "tournament_elapsed_sec": round(tourney_res.elapsed_seconds, 2),
             "loss": round(last_loss, 4),
             "promoted": promoted,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -526,8 +559,9 @@ if __name__ == "__main__":
     parser.add_argument("--games", type=int, default=1024, help="Parallel games per self-play batch (GPU saturated)")
     parser.add_argument("--mcts-sims", type=int, default=800, help="MCTS visits per move (Deep AlphaZero)")
     parser.add_argument("--moves-per-cycle", type=int, default=40, help="Moves played across parallel games per self-play cycle")
-    parser.add_argument("--eval-games", type=int, default=40, help="Number of games in gating match (2-ply opening suite)")
-    parser.add_argument("--eval-sims", type=int, default=200, help="MCTS visits in gating match")
+    parser.add_argument("--eval-pairs", type=int, default=1024, help="Number of paired positions in gating tournament (default: 1024 -> 2048 games)")
+    parser.add_argument("--eval-games", type=int, default=None, help="Legacy alias for total evaluation games (eval_pairs = eval_games // 2)")
+    parser.add_argument("--eval-sims", type=int, default=100, help="MCTS visits in gating match (default: 100)")
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs per cycle")
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold win rate")
@@ -538,12 +572,16 @@ if __name__ == "__main__":
     parser.add_argument("--test-mode", action="store_true", help="Run with isolated temporary checkpoints to protect production state")
     args = parser.parse_args()
 
+    eval_pairs = args.eval_pairs
+    if args.eval_games is not None:
+        eval_pairs = max(args.eval_games // 2, 1)
+
     run_champion_challenger(
         total_cycles=args.cycles,
         parallel_games=args.games,
         mcts_simulations=args.mcts_sims,
         moves_per_cycle=args.moves_per_cycle,
-        eval_games=args.eval_games,
+        eval_pairs=eval_pairs,
         eval_sims=args.eval_sims,
         train_epochs=args.epochs,
         lr=args.lr,

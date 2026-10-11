@@ -670,6 +670,92 @@ impl MctsWorker {
         self.completed_samples.extend(new_finished_samples);
         count
     }
+
+    /// Advances moves for competitive tournament evaluation without resetting finished games.
+    /// Games that finish retain their terminal board state and are not reset with new openings.
+    pub fn advance_moves_tournament(&mut self, temperature: f32) -> usize {
+        let z_consts = &self.zobrist_constants;
+        let mut finished_count = 0;
+
+        for game in self.games.iter_mut() {
+            let win_state = game.board.get_win_state();
+            if win_state != GameResult::Unresolved || game.moves_played >= 81 {
+                finished_count += 1;
+                continue;
+            }
+
+            if game.nodes.is_empty() {
+                continue;
+            }
+
+            let root = &game.nodes[0];
+            if root.num_children == 0 || root.is_terminal {
+                finished_count += 1;
+                continue;
+            }
+
+            let total_visits: u32 = (0..root.num_children)
+                .map(|c_off| game.children[(root.first_child + c_off as u32) as usize].visits)
+                .sum();
+
+            if total_visits == 0 {
+                continue;
+            }
+
+            let chosen_action = if temperature < 0.05 {
+                // Pure greedy argmax for competitive match
+                let mut max_v = 0;
+                let mut max_a = game.children[root.first_child as usize].action;
+                for c_off in 0..root.num_children {
+                    let ch = &game.children[(root.first_child + c_off as u32) as usize];
+                    if ch.visits > max_v {
+                        max_v = ch.visits;
+                        max_a = ch.action;
+                    }
+                }
+                max_a
+            } else {
+                let mut actions = Vec::with_capacity(root.num_children as usize);
+                let mut weights = Vec::with_capacity(root.num_children as usize);
+                for c_off in 0..root.num_children {
+                    let ch = &game.children[(root.first_child + c_off as u32) as usize];
+                    actions.push(ch.action);
+                    weights.push((ch.visits as f32).powf(1.0 / temperature));
+                }
+                let w_sum: f32 = weights.iter().sum();
+                let mut r = game.rng.gen_range(0.0..w_sum);
+                let mut picked = actions[0];
+                for (&act, &w) in actions.iter().zip(weights.iter()) {
+                    if r < w {
+                        picked = act;
+                        break;
+                    }
+                    r -= w;
+                }
+                picked
+            };
+
+            game.board.make_move(
+                GameMove {
+                    x_to_move: game.board.x_to_move,
+                    move_index: chosen_action,
+                },
+                z_consts,
+            );
+            game.moves_played += 1;
+            game.current_leaf_board = game.board.clone();
+
+            game.nodes.clear();
+            game.children.clear();
+
+            let win_state_after = game.board.get_win_state();
+            if win_state_after != GameResult::Unresolved || game.moves_played >= 81 {
+                finished_count += 1;
+            }
+        }
+
+        finished_count
+    }
 }
 
 // ============================================================================
@@ -788,6 +874,115 @@ pub extern "C" fn mcts_worker_drain_samples(
             }
         }
         n
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_set_game_moves(
+    worker: *mut MctsWorker,
+    game_idx: usize,
+    moves: *const u8,
+    num_moves: usize,
+) {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        if game_idx >= w.num_games {
+            return;
+        }
+        let move_slice = unsafe { std::slice::from_raw_parts(moves, num_moves) };
+        let mut board = UltimateTicTacToeBoard::default();
+        for &m in move_slice {
+            board.make_move(
+                GameMove {
+                    x_to_move: board.x_to_move,
+                    move_index: m,
+                },
+                &w.zobrist_constants,
+            );
+        }
+        let game = &mut w.games[game_idx];
+        game.board = board.clone();
+        game.current_leaf_board = board;
+        game.nodes.clear();
+        game.children.clear();
+        game.history.clear();
+        game.moves_played = num_moves;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_get_game_status(
+    worker: *mut MctsWorker,
+    game_idx: usize,
+) -> i32 {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        if game_idx >= w.num_games {
+            return 0;
+        }
+        let game = &w.games[game_idx];
+        let win_state = game.board.get_win_state();
+        match win_state {
+            GameResult::P1Win => 1,
+            GameResult::P2Win => -1,
+            GameResult::Tie => 2,
+            GameResult::Unresolved => {
+                if game.moves_played >= 81 {
+                    let xw = game.board.x_supers.count_ones();
+                    let ow = game.board.o_supers.count_ones();
+                    if xw > ow { 1 } else if ow > xw { -1 } else { 2 }
+                } else {
+                    0
+                }
+            }
+        }
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_get_game_x_to_move(
+    worker: *mut MctsWorker,
+    game_idx: usize,
+) -> bool {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        if game_idx < w.num_games {
+            w.games[game_idx].board.x_to_move
+        } else {
+            true
+        }
+    } else {
+        true
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_get_active_indices(
+    worker: *mut MctsWorker,
+    out_indices: *mut usize,
+    max_count: usize,
+) -> usize {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        let n = w.active_eval_indices.len().min(max_count);
+        unsafe {
+            for (i, &idx) in w.active_eval_indices.iter().take(n).enumerate() {
+                *out_indices.add(i) = idx;
+            }
+        }
+        n
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_advance_moves_tournament(
+    worker: *mut MctsWorker,
+    temperature: f32,
+) -> usize {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        w.advance_moves_tournament(temperature)
     } else {
         0
     }

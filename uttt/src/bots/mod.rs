@@ -12,6 +12,7 @@ pub mod original_umcts_bot;
 pub mod umcts_v2_bot;
 pub mod umcts_v3_bot;
 pub mod book_bot;
+pub mod alphazero_bot;
 
 pub use random_bot::RandomBot;
 pub use rule_based_bot::RuleBasedBot;
@@ -23,6 +24,7 @@ pub use original_umcts_bot::OriginalUmctsBot;
 pub use umcts_v2_bot::UmctsV2Bot;
 pub use umcts_v3_bot::UmctsV3Bot;
 pub use book_bot::BookBot;
+pub use alphazero_bot::AlphaZeroBot;
 
 pub trait Bot: Send + Sync {
     fn name(&self) -> &str;
@@ -49,6 +51,7 @@ pub fn available_bots() -> Vec<&'static str> {
         "umcts_v3",
         "book_umcts_v2",
         "book_alphabeta",
+        "alphazero",
     ]
 }
 
@@ -65,6 +68,7 @@ pub fn create_bot(name: &str) -> Option<Box<dyn Bot>> {
         "umcts_v3" | "v3" | "umcts3" => Some(Box::new(UmctsV3Bot::new())),
         "book_umcts_v2" | "book_v2" => Some(Box::new(BookBot::new("umcts_v2"))),
         "book_alphabeta" | "book_ab" => Some(Box::new(BookBot::new("alphabeta"))),
+        "alphazero" | "alphazero_bot" | "az" | "nn" | "nn_bot" => Some(Box::new(AlphaZeroBot::new())),
         _ => None,
     }
 }

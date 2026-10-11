@@ -36,6 +36,7 @@ fn print_bot_descriptions() {
     println!("  9. umcts_v3       - Advanced MCTS-Solver with in-tree EGTB proof propagation and heuristic move priors.");
     println!(" 10. book_umcts_v2  - UMCTS-V2 with instant D4 Opening Book lookup (<1 us) and EGTB probing.");
     println!(" 11. book_alphabeta - AlphaBeta with instant D4 Opening Book lookup and EGTB probing.");
+    println!(" 12. alphazero      - Pure Rust INT8 dual-headed ResNet inference engine (Policy + Value).");
     println!();
 }
 
@@ -231,7 +232,13 @@ fn run_match_cmd(args: &[String]) {
     println!("=======================================================\n");
 
     if !replay_path.is_empty() {
-        println!("Match replay saved to {}", replay_path);
+        if let Ok(json_str) = serde_json::to_string_pretty(&res.replays) {
+            if std::fs::write(&replay_path, json_str).is_ok() {
+                println!("Match replays ({} games) saved to {}", res.replays.len(), replay_path);
+            } else {
+                eprintln!("Failed to write replays to {}", replay_path);
+            }
+        }
     }
 }
 

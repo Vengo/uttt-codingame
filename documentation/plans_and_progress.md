@@ -13,14 +13,15 @@ This document outlines the architectural plans, implementation milestones, algor
 | **Directed Subboard Normalization** | **Completed** | Any move directing to a resolved subboard normalizes to index 9 |
 | **Tie-Mask Bug Fix** | **Completed** | `get_tied_mask()` strictly excludes `x_supers \| o_supers` |
 | **Principled Opening Book** | **Completed** | UCT dominance filter ($N_1 \ge 1.35 \times N_2$, PV-only, depth $\le 8$) |
-| **Systematic EGTB Tier 9** | **Completed** | 39,366 raw configurations $\to$ **19,891 canonical states** solved in **< 15 ms** |
-| **Systematic EGTB Tier 8** | **Completed** | Grandfather DF-PN solving at **> 10,000 pos/sec** (+200/batch) |
-| **Grandfather DF-PN Solver** | **Completed** | 1-ply immediate win + 2-ply refutation lookahead with `PackedBoardState` TT |
-| **Endgame Tablebase Size** | **Active Growth** | **29,611 verified positions** in `/my-zraid/uttt/egtb/egtb_4plus.bin` |
+| **Partitioned EGTB Tiers 9, 8, 7** | **Completed** | Per-tier files (`egtb_tier{k}.bin`), zero-copy binary search on mapped slices |
+| **Grandfather DF-PN Solver** | **Completed** | 1-ply immediate win + 2-ply refutation lookahead with `solve_move` |
+| **Macro Routing & History Heuristic** | **Completed** | `AlphaBetaV2Bot` 26.2 KB flat history table, free-choice & threat penalties |
+| **Principled MCTS Solver Handoff** | **Completed** | `UmctsV3Bot` pure UCT rollouts + root DF-PN/EGTB handoff + in-tree cutoffs |
+| **AlphaZero Pipeline & INT8 Engine** | **Completed** | RTX 5060 Ti PyTorch pipeline + pure Rust INT8 inference (311 KB, 5.8 ms/eval) |
+| **Endgame Tablebase Size** | **Active Growth** | **29,611+ verified positions** in partitioned `/my-zraid/uttt/egtb/` |
 | **Opening Book Size** | **Controlled** | **108,578 canonical positions** in `/my-zraid/uttt/book.bin` |
-| **Continuous Study Daemon** | **Operational** | Automated self-play, book deepening, and EGTB solver cycles |
 | **Arena Web Studio** | **Operational** | Live web interface running on port 8080 |
-| **Test Suite** | **100% Passing** | 59 unit and integration tests passing in ~2.8s |
+| **Test Suite** | **100% Passing** | **73 unit and integration tests** passing in ~10.8s |
 
 ---
 

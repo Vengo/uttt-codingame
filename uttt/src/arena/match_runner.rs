@@ -17,6 +17,7 @@ pub struct MatchResult {
     pub bot1_winrate: f64,
     pub bot2_winrate: f64,
     pub game_history: Vec<GameStats>,
+    pub replays: Vec<crate::arena::replay::GameReplay>,
 }
 
 pub struct MatchRunner {
@@ -58,6 +59,7 @@ impl MatchRunner {
         let mut bot2_wins = 0;
         let mut draws = 0;
         let mut history = Vec::with_capacity(num_games);
+        let mut replays = Vec::with_capacity(if self.record_replays { num_games } else { 0 });
 
         let bot1_name = bot1.name().to_string();
         let bot2_name = bot2.name().to_string();
@@ -72,9 +74,9 @@ impl MatchRunner {
                 &default_board
             };
 
-            let (stats, _replay) = if game_idx % 2 == 0 {
+            let (stats, r) = if game_idx % 2 == 0 {
                 // Bot 1 plays X, Bot 2 plays O
-                let (s, r) = game_runner.play_from_position(bot1, bot2, initial_board, legal_moves_lookup, zobrist_constants);
+                let (s, rep) = game_runner.play_from_position(bot1, bot2, initial_board, legal_moves_lookup, zobrist_constants);
                 match &s.outcome {
                     GameOutcome::XWin | GameOutcome::OForfeit(_) => {
                         bot1_wins += 1;
@@ -95,10 +97,10 @@ impl MatchRunner {
                         }
                     }
                 }
-                (s, r)
+                (s, rep)
             } else {
                 // Bot 2 plays X, Bot 1 plays O
-                let (s, r) = game_runner.play_from_position(bot2, bot1, initial_board, legal_moves_lookup, zobrist_constants);
+                let (s, rep) = game_runner.play_from_position(bot2, bot1, initial_board, legal_moves_lookup, zobrist_constants);
                 match &s.outcome {
                     GameOutcome::XWin | GameOutcome::OForfeit(_) => {
                         bot2_wins += 1;
@@ -119,9 +121,12 @@ impl MatchRunner {
                         }
                     }
                 }
-                (s, r)
+                (s, rep)
             };
 
+            if let Some(rep) = r {
+                replays.push(rep);
+            }
             history.push(stats);
         }
 
@@ -147,6 +152,7 @@ impl MatchRunner {
             bot1_winrate,
             bot2_winrate,
             game_history: history,
+            replays,
         }
     }
 }

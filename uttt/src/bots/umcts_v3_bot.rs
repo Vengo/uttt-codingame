@@ -35,7 +35,8 @@ pub struct UmctsV3Node {
 
 impl UmctsV3Node {
     pub fn new(board: &UltimateTicTacToeBoard, mut legal_moves: Vec<GameMove>) -> Self {
-        // Sort candidate moves ascending by heuristic score so pop() extracts the highest-scoring move first
+        // Natural move ordering: gentle tie-breaker for center/corners, and immediate game-winning moves prioritized.
+        // No artificial heuristic subboard capture bonus (+80).
         legal_moves.sort_by_cached_key(|&m| Self::score_move_quick(board, m));
 
         UmctsV3Node {
@@ -45,6 +46,22 @@ impl UmctsV3Node {
             unexpanded_moves: legal_moves,
             children: Vec::new(),
         }
+    }
+
+    #[inline(always)]
+    pub fn is_immediate_game_win(board: &UltimateTicTacToeBoard, m: GameMove) -> bool {
+        let parsed = parse_index(m.move_index);
+        let sub = parsed.sub_board_index;
+        let sq = parsed.sub_square_index;
+        let is_x = m.x_to_move;
+        let my_bb = if is_x { board.xbb[sub] } else { board.obb[sub] };
+        let new_my_bb = my_bb | (1 << sq);
+        if RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask) {
+            let my_supers = if is_x { board.x_supers } else { board.o_supers };
+            let new_supers = my_supers | (1 << sub);
+            return RESULT_MASKS.iter().any(|mask| (new_supers & mask) == *mask);
+        }
+        false
     }
 
     pub fn score_move_quick(board: &UltimateTicTacToeBoard, m: GameMove) -> i32 {
@@ -63,16 +80,9 @@ impl UmctsV3Node {
             priority += 20;
         }
 
-        let is_x = m.x_to_move;
-        let my_bb = if is_x { board.xbb[sub] } else { board.obb[sub] };
-        let new_my_bb = my_bb | (1 << sq);
-        if RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask) {
-            priority += 80;
-            let my_supers = if is_x { board.x_supers } else { board.o_supers };
-            let new_supers = my_supers | (1 << sub);
-            if RESULT_MASKS.iter().any(|mask| (new_supers & mask) == *mask) {
-                priority += 10_000;
-            }
+        // Only give major priority if the move immediately wins the entire match (1-ply win)
+        if Self::is_immediate_game_win(board, m) {
+            priority += 10_000;
         }
 
         priority
@@ -104,7 +114,7 @@ impl UmctsV3Bot {
             rng: SmallRng::from_entropy(),
             book: OpeningBook::new(),
             egtb,
-            dfpn: DfPnSolver::new(3_000),
+            dfpn: DfPnSolver::new(2_000),
             legal_lookup,
         }
     }
@@ -289,13 +299,71 @@ impl Bot for UmctsV3Bot {
             }
         }
 
-        // 2. Query DF-PN Solver at root in late game (>= 5 resolved subboards)
-        let resolved = (board.x_supers | board.o_supers | board.get_tied_mask()).count_ones();
+        // 2. Principled Solver Handoff in late game (>= 5 resolved subboards)
+        let resolved = board.get_resolved_count();
         if resolved >= 5 {
-            self.dfpn.max_nodes = 3_000;
-            if let Some((true, Some(winning_move))) = self.dfpn.solve_move(board, &self.legal_lookup, zobrist_constants) {
-                if root_moves.iter().any(|m| m.move_index == winning_move.move_index) {
-                    return winning_move;
+            // a) Root EGTB Probe: Check if any move directly converts or leads to a winning/drawing EGTB position
+            if let Some(ref egtb) = self.egtb {
+                let mut winning_move = None;
+                let mut drawing_move = None;
+                let mut scratch_board = board.clone();
+
+                for &m in &root_moves {
+                    let undo = scratch_board.make_move(m, zobrist_constants);
+                    let win_state = scratch_board.get_win_state();
+                    let is_direct_win = if board.x_to_move {
+                        win_state == GameResult::P1Win
+                    } else {
+                        win_state == GameResult::P2Win
+                    };
+                    if is_direct_win {
+                        scratch_board.unmake_move(undo);
+                        return m;
+                    }
+
+                    if let Some(outcome) = egtb.probe(&scratch_board) {
+                        let is_egtb_win = if board.x_to_move {
+                            outcome == GameResult::P1Win
+                        } else {
+                            outcome == GameResult::P2Win
+                        };
+                        if is_egtb_win {
+                            winning_move = Some(m);
+                            scratch_board.unmake_move(undo);
+                            break;
+                        } else if outcome == GameResult::Tie && drawing_move.is_none() {
+                            drawing_move = Some(m);
+                        }
+                    }
+                    scratch_board.unmake_move(undo);
+                }
+
+                if let Some(m) = winning_move {
+                    return m;
+                }
+
+                // If root position itself is in EGTB:
+                if let Some(root_res) = egtb.probe(board) {
+                    let is_root_win = if board.x_to_move {
+                        root_res == GameResult::P1Win
+                    } else {
+                        root_res == GameResult::P2Win
+                    };
+                    if is_root_win {
+                        return winning_move.unwrap_or(root_moves[0]);
+                    } else if root_res == GameResult::Tie {
+                        if let Some(m) = drawing_move {
+                            return m;
+                        }
+                    }
+                }
+            }
+
+            // b) Root DF-PN Solver Handoff: allocate strict 1-2 ms budget (2,000 nodes)
+            self.dfpn.max_nodes = 2_000;
+            if let Some((_, Some(proven_move))) = self.dfpn.solve_move(board, &self.legal_lookup, zobrist_constants) {
+                if root_moves.iter().any(|m| m.move_index == proven_move.move_index) {
+                    return proven_move;
                 }
             }
         }
@@ -389,7 +457,7 @@ impl Bot for UmctsV3Bot {
                             let opp_supers = if m.x_to_move { sim_board.o_supers } else { sim_board.x_supers };
                             let opp_has_threat = RESULT_MASKS.iter().any(|mask| (opp_supers & mask).count_ones() == 2);
                             let opp_can_win_immediately = opp_has_threat && child_moves.iter().any(|&opp_m| {
-                                UmctsV3Node::score_move_quick(&sim_board, opp_m) >= 10_000
+                                UmctsV3Node::is_immediate_game_win(&sim_board, opp_m)
                             });
 
                             if opp_can_win_immediately {
@@ -398,14 +466,10 @@ impl Bot for UmctsV3Bot {
                                 child_node.proof = ProofStatus::ProvenWin;
                             } else {
                                 // 2. In-tree EGTB Probing (resolved >= 7)
-                                let resolved = (sim_board.x_supers
-                                    | sim_board.o_supers
-                                    | sim_board.get_tied_mask())
-                                .count_ones();
-
+                                let resolved = sim_board.get_resolved_count();
                                 if resolved >= 7 {
                                     if let Some(ref egtb) = self.egtb {
-                                        if let Some(res) = egtb.probe(&sim_board, zobrist_constants) {
+                                        if let Some(res) = egtb.probe(&sim_board) {
                                             egtb_result = Some(res);
                                             let active_is_p1 = sim_board.x_to_move;
                                             child_node.proof = match res {
@@ -439,7 +503,7 @@ impl Bot for UmctsV3Bot {
                 }
             }
 
-            // 3. Simulation (skipped if terminal, solved by EGTB, or proven by tactical/DF-PN check)
+            // 3. Simulation (skipped if terminal, solved by EGTB, or proven by tactical check)
             let curr_proof = self.node_store.get(&curr_hash).map_or(ProofStatus::Unproven, |n| n.proof);
             let result = if curr_proof != ProofStatus::Unproven {
                 let active_is_p1 = sim_board.x_to_move;

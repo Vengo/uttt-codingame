@@ -92,17 +92,20 @@ uttt-codingame/
   ```
   Strictly prevents canonical won subboards (`0x1FF`) or subboards won on the 9th move from being misclassified as ties.
 
-### 2.7 Complete Roster of 9 Bot Architectures
-Defined in [`uttt/src/bots/mod.rs`](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/mod.rs#L35-L47):
+### 2.7 Complete Roster of 12 Bot Architectures
+Defined in [`uttt/src/bots/mod.rs`](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/mod.rs#L41-L56):
 1. `random`: Uniformly random legal move baseline.
 2. `rule_based`: Fast expert heuristic bot (subboard capture, threat blocking, opponent steering).
 3. `alphabeta`: Minimax with Alpha-Beta pruning, iterative deepening, and subboard/superboard evaluation.
-4. `mcts`: Classic Monte Carlo Tree Search with UCT selection and random rollouts.
-5. `heuristic_mcts`: MCTS combining UCT tree search with heuristic rollout policies.
-6. `original_umcts`: Legacy baseline MCTS search engine.
-7. `umcts_v2`: Modernized MCTS-Solver with 1-node expansion, bound proofs, and cache-local memory stores.
-8. `book_umcts_v2`: Wraps `umcts_v2` with instant (< 1 $\mu$s) opening book lookups and EGTB probing.
-9. `book_alphabeta`: Wraps `alphabeta` with instant opening book lookups and EGTB probing.
+4. `alphabeta_v2`: Advanced Minimax with 26.2 KB History/Countermove heuristics, macro routing penalties, and root DF-PN.
+5. `mcts`: Classic Monte Carlo Tree Search with UCT selection and random rollouts.
+6. `heuristic_mcts`: MCTS combining UCT tree search with heuristic rollout policies.
+7. `original_umcts`: Legacy baseline MCTS search engine.
+8. `umcts_v2`: Modernized MCTS-Solver with 1-node expansion, bound proofs, and cache-local memory stores.
+9. `umcts_v3`: Advanced MCTS-Solver with pure UCT rollouts, root DF-PN solver handoff, and in-tree zero-copy EGTB cutoffs.
+10. `book_umcts_v2`: Wraps `umcts_v2` with instant (< 1 $\mu$s) opening book lookups and EGTB probing.
+11. `book_alphabeta`: Wraps `alphabeta` with instant opening book lookups and EGTB probing.
+12. `alphazero`: Pure Rust INT8 dual-headed ResNet inference engine (Policy + Value), zero external dependencies (< 2 MB CodinGame limit).
 
 ### 2.8 Arena, Study Daemon, and Web Dashboard
 - Multi-threaded tournament runner, Elo tracking, flamegraph CPU sampling via `pprof`.

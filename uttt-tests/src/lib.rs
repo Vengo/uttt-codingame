@@ -1962,3 +1962,6 @@ mod tests_uttt {
 #[cfg(test)]
 pub mod canonical_state_tests;
 
+#[cfg(test)]
+pub mod nn_tests;
+

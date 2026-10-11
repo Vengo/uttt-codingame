@@ -64,7 +64,7 @@ if resolved_count >= 4 {
 }
 ```
 
-### 1.4 Ply Tracking & Killer Move Heuristics
+### 1.4 Search Ply Tracking, Killer Moves, History Table & Countermove Table
 - `negamax` signature:
   ```rust
   fn negamax(
@@ -74,30 +74,39 @@ if resolved_count >= 4 {
       ply: usize,
       mut alpha: i32,
       mut beta: i32,
+      prev_move: Option<GameMove>,
       zobrist_constants: &ZobristConstants,
       deadline: Instant,
       time_exceeded: &mut bool,
   ) -> i32
   ```
-- Killer moves recorded on beta cutoff (`score >= beta`) if the move was non-tactical:
-  ```rust
-  if ply < MAX_PLY && unmove.a_super_unmask == 0 {
-      if self.killers[ply][0] != Some(m) {
-          self.killers[ply][1] = self.killers[ply][0];
-          self.killers[ply][0] = Some(m);
-      }
-  }
-  ```
+- **Killer Moves**: Recorded on quiet beta cutoff (`score >= beta`):
+  `killers[ply][0]` and `killers[ply][1]`.
+- **Countermove Table**: `countermoves: [Option<GameMove>; 81]` storing refutations to previous moves:
+  `self.countermoves[prev_move] = Some(curr_move)`.
+- **History Table**: Flat 26 KB table `history: [[u32; 81]; 81]` storing cutoff frequency:
+  `self.history[prev_move][curr_move] += (depth * depth) as u32`.
+- **Aging / Decay**: When history values exceed `MAX_HISTORY = 100_000`, all history entries are divided by 2.
 
-### 1.5 Move Ordering Pipeline
-1. Transposition table PV move (Priority 0).
-2. Subboard captures & immediate line threats (Priority 10).
-3. Primary killer move `killers[ply][0]` if legal (Priority 20).
-4. Secondary killer move `killers[ply][1]` if legal (Priority 25).
-5. Cell positional values & opponent direction penalties (Priority 30+).
+### 1.5 Enhanced Move Ordering Pipeline & Macro-Board Routing Heuristics
+Moves are scored and ordered hierarchically:
+1. **TT Best Move**: Transposition table PV move (Score `10_000_000`).
+2. **Immediate Game Win**: Move immediately completing a winning superboard line (Score `9_000_000`).
+3. **Primary Killer Move**: `killers[ply][0]` (Score `8_000_000`).
+4. **Secondary Killer Move**: `killers[ply][1]` (Score `7_000_000`).
+5. **Countermove**: `countermoves[prev_move]` (Score `6_000_000`).
+6. **History Score + Tactical / Macro Routing Heuristics**:
+   - `history[prev_move][curr_move]` score.
+   - **Tactical subboard captures**: `+600` bonus; local threat creation `+60`.
+   - **Macro-Board Routing Heuristics**:
+     - *Free Choice Gifting Penalty*: Moves directing the opponent to a resolved/completed subboard (gifting free choice across any open subboard) penalized by `-300` in move scoring and `-250` in static evaluation.
+     - *Opponent Threat Penalty*: Moves directing the opponent into a subboard where the opponent has an active, unblocked 2-in-a-row threat penalized by `-400` in move scoring and `-350` in static evaluation.
+     - *Neutralized Subboard Reward*: Directing opponent to a dead subboard where they have 0 winning lines rewarded with `+150`.
+     - *Defensive Control Reward*: Directing opponent where active player holds defensive threat control rewarded with `+100`.
+   - **Positional Values**: Center cell `+20`, corners `+10`, center subboard `+15`.
 
 ### 1.6 Ply-0 Opening Book
-- Checks `self.book.lookup(board, zobrist_constants)` at ply 0.
+- Checks `self.book.lookup_with_min_visits(board, zobrist_constants, 5_000)` at ply 0.
 - If present and legal, returns immediately in $< 1$ $\mu$s.
 
 ---

@@ -33,7 +33,9 @@ struct TTEntry {
 pub struct AlphaBetaV2Bot {
     name: String,
     tt: HashMap<u64, TTEntry>,
-    killers: [[Option<GameMove>; 2]; MAX_PLY],
+    pub killers: [[Option<GameMove>; 2]; MAX_PLY],
+    pub history: [[u32; 81]; 81],
+    pub countermoves: [Option<GameMove>; 81],
     book: OpeningBook,
     egtb: Option<EgtbDatabase>,
     dfpn: DfPnSolver,
@@ -48,6 +50,8 @@ impl AlphaBetaV2Bot {
             name: "AlphaBetaV2Bot".to_string(),
             tt: HashMap::with_capacity(1_000_000),
             killers: [[None; 2]; MAX_PLY],
+            history: [[0u32; 81]; 81],
+            countermoves: [None; 81],
             book: OpeningBook::new(),
             egtb,
             dfpn: DfPnSolver::new(3_000),
@@ -89,7 +93,7 @@ impl AlphaBetaV2Bot {
         }
     }
 
-    fn evaluate_board(board: &UltimateTicTacToeBoard) -> i32 {
+    pub fn evaluate_board(board: &UltimateTicTacToeBoard) -> i32 {
         match board.get_win_state() {
             GameResult::P1Win => return 100_000,
             GameResult::P2Win => return -100_000,
@@ -159,62 +163,238 @@ impl AlphaBetaV2Bot {
             }
         }
 
+        // 4. Macro-Board Routing Heuristic
+        let board_has_marks = board.x_supers != 0
+            || board.o_supers != 0
+            || board.xbb.iter().any(|&b| b != 0)
+            || board.obb.iter().any(|&b| b != 0);
+
+        if board_has_marks {
+            let is_free_choice =
+                board.last_super_index >= 9 || (complete & (1 << board.last_super_index)) != 0;
+            if is_free_choice {
+                // Opponent gifted the active player free choice across any open subboard.
+                let free_choice_val = 250;
+                if board.x_to_move {
+                    score += free_choice_val;
+                } else {
+                    score -= free_choice_val;
+                }
+            } else {
+                let c = board.last_super_index as usize;
+                let (active_bb, defending_bb) = if board.x_to_move {
+                    (board.xbb[c], board.obb[c])
+                } else {
+                    (board.obb[c], board.xbb[c])
+                };
+
+                // Check if active player has an active 2-in-a-row threat in subboard c
+                let active_threat = RESULT_MASKS.iter().any(|mask| {
+                    (active_bb & mask).count_ones() == 2 && (defending_bb & mask) == 0
+                });
+
+                if active_threat {
+                    // Directing active player into an unblocked threat grants them an immediate subboard capture!
+                    let threat_val = 350;
+                    if board.x_to_move {
+                        score += threat_val;
+                    } else {
+                        score -= threat_val;
+                    }
+                } else {
+                    // Check if active player has NO winning lines in c (neutralized subboard)
+                    let active_has_lines = RESULT_MASKS.iter().any(|mask| {
+                        (defending_bb & mask) == 0
+                    });
+                    if !active_has_lines {
+                        let dead_board_val = 150;
+                        if board.x_to_move {
+                            score -= dead_board_val;
+                        } else {
+                            score += dead_board_val;
+                        }
+                    } else {
+                        // Check if defending player holds defensive control (threat while active has none)
+                        let defending_threat = RESULT_MASKS.iter().any(|mask| {
+                            (defending_bb & mask).count_ones() == 2 && (active_bb & mask) == 0
+                        });
+                        if defending_threat {
+                            let control_val = 100;
+                            if board.x_to_move {
+                                score -= control_val;
+                            } else {
+                                score += control_val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         score
     }
 
-    fn order_moves(
+    pub fn score_move(
+        &self,
+        m: GameMove,
+        tt_best: Option<GameMove>,
+        ply: usize,
+        prev_move: Option<GameMove>,
+        board: &UltimateTicTacToeBoard,
+    ) -> i32 {
+        let complete = board.x_supers | board.o_supers | board.get_tied_mask();
+        self.score_move_internal(m, tt_best, ply, prev_move, board, complete)
+    }
+
+    fn score_move_internal(
+        &self,
+        m: GameMove,
+        tt_best: Option<GameMove>,
+        ply: usize,
+        prev_move: Option<GameMove>,
+        board: &UltimateTicTacToeBoard,
+        complete: u16,
+    ) -> i32 {
+        // 1. TT Best move has absolute top priority
+        if let Some(best) = tt_best {
+            if m.move_index == best.move_index {
+                return 10_000_000;
+            }
+        }
+
+        let parsed = parse_index(m.move_index);
+        let sub = parsed.sub_board_index;
+        let sq = parsed.sub_square_index;
+
+        let my_bb = if board.x_to_move { board.xbb[sub] } else { board.obb[sub] };
+        let new_my_bb = my_bb | (1 << sq);
+        let wins_sub = RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask);
+
+        let my_supers = if board.x_to_move { board.x_supers } else { board.o_supers };
+        let wins_game = wins_sub && RESULT_MASKS.iter().any(|mask| ((my_supers | (1 << sub)) & mask) == *mask);
+
+        if wins_game {
+            return 9_000_000;
+        }
+
+        // 2. Killer moves (2 slots per ply)
+        if ply < MAX_PLY {
+            if let Some(k1) = self.killers[ply][0] {
+                if m.move_index == k1.move_index {
+                    return 8_000_000;
+                }
+            }
+            if let Some(k2) = self.killers[ply][1] {
+                if m.move_index == k2.move_index {
+                    return 7_000_000;
+                }
+            }
+        }
+
+        // 3. Countermove from countermoves[prev_move]
+        if let Some(prev) = prev_move {
+            if let Some(cm) = self.countermoves[prev.move_index as usize] {
+                if m.move_index == cm.move_index {
+                    return 6_000_000;
+                }
+            }
+        }
+
+        // 4. History score
+        let history_score = if let Some(prev) = prev_move {
+            self.history[prev.move_index as usize][m.move_index as usize]
+        } else {
+            self.history.iter().map(|row| row[m.move_index as usize]).max().unwrap_or(0)
+        };
+
+        // 5. Macro routing and tactical heuristic features
+        let mut heuristic = 0i32;
+
+        if wins_sub {
+            heuristic += 600;
+        } else {
+            let opp_bb_in_sub = if board.x_to_move { board.obb[sub] } else { board.xbb[sub] };
+            let creates_threat = RESULT_MASKS.iter().any(|mask| {
+                (new_my_bb & mask).count_ones() == 2 && (opp_bb_in_sub & mask) == 0
+            });
+            if creates_threat {
+                heuristic += 60;
+            }
+        }
+
+        let opp_bb_in_sub = if board.x_to_move { board.obb[sub] } else { board.xbb[sub] };
+        let ties_sub = !wins_sub && (new_my_bb | opp_bb_in_sub) == 511;
+        let is_completed_target = (complete & (1 << sq)) != 0 || (sq == sub && (wins_sub || ties_sub));
+
+        if is_completed_target {
+            heuristic -= 300;
+        } else {
+            let opp_bb_target = if board.x_to_move { board.obb[sq] } else { board.xbb[sq] };
+            let my_bb_target = if sq == sub {
+                new_my_bb
+            } else {
+                if board.x_to_move { board.xbb[sq] } else { board.obb[sq] }
+            };
+
+            let opp_has_threat = RESULT_MASKS.iter().any(|mask| {
+                (opp_bb_target & mask).count_ones() == 2 && (my_bb_target & mask) == 0
+            });
+
+            if opp_has_threat {
+                heuristic -= 400;
+            } else {
+                let opp_has_lines = RESULT_MASKS.iter().any(|mask| {
+                    (my_bb_target & mask) == 0
+                });
+                if !opp_has_lines {
+                    heuristic += 150;
+                } else {
+                    let my_threat = RESULT_MASKS.iter().any(|mask| {
+                        (my_bb_target & mask).count_ones() == 2 && (opp_bb_target & mask) == 0
+                    });
+                    if my_threat {
+                        heuristic += 100;
+                    }
+                }
+            }
+        }
+
+        if sq == 4 {
+            heuristic += 20;
+        } else if matches!(sq, 0 | 2 | 6 | 8) {
+            heuristic += 10;
+        }
+
+        if sub == 4 {
+            heuristic += 15;
+        }
+
+        (history_score.min(100_000) as i32) + heuristic
+    }
+
+    pub fn order_moves(
+        &self,
         moves: &mut [GameMove],
         tt_best: Option<GameMove>,
-        killer1: Option<GameMove>,
-        killer2: Option<GameMove>,
+        ply: usize,
+        prev_move: Option<GameMove>,
         board: &UltimateTicTacToeBoard,
     ) {
         let complete = board.x_supers | board.o_supers | board.get_tied_mask();
-
         moves.sort_by_cached_key(|&m| {
-            // 1. TT Best move has absolute top priority
-            if let Some(best) = tt_best {
-                if m.move_index == best.move_index {
-                    return -1000;
-                }
-            }
-
-            let parsed = parse_index(m.move_index);
-            let sub = parsed.sub_board_index;
-            let sq = parsed.sub_square_index;
-
-            let mut priority = 0i32;
-
-            // 2. Killer move bonus
-            if let Some(k1) = killer1 {
-                if m.move_index == k1.move_index {
-                    priority -= 25;
-                }
-            } else if let Some(k2) = killer2 {
-                if m.move_index == k2.move_index {
-                    priority -= 15;
-                }
-            }
-
-            // 3. Positional square preferences
-            if sq == 4 {
-                priority -= 20; // Center square
-            } else if matches!(sq, 0 | 2 | 6 | 8) {
-                priority -= 10; // Corners
-            }
-
-            // 4. Center subboard bonus
-            if sub == 4 {
-                priority -= 15;
-            }
-
-            // 5. Penalty for sending opponent to completed board (free choice)
-            if (complete & (1 << sq)) != 0 {
-                priority += 30;
-            }
-
-            priority
+            std::cmp::Reverse(self.score_move_internal(m, tt_best, ply, prev_move, board, complete))
         });
+    }
+
+    pub fn decay_history(&mut self, factor: u32) {
+        if factor <= 1 {
+            return;
+        }
+        for row in self.history.iter_mut() {
+            for val in row.iter_mut() {
+                *val /= factor;
+            }
+        }
     }
 
     fn negamax(
@@ -224,6 +404,7 @@ impl AlphaBetaV2Bot {
         ply: usize,
         mut alpha: i32,
         mut beta: i32,
+        prev_move: Option<GameMove>,
         zobrist_constants: &ZobristConstants,
         deadline: Instant,
         time_exceeded: &mut bool,
@@ -258,10 +439,10 @@ impl AlphaBetaV2Bot {
         }
 
         // 3. In-tree Endgame Tablebase (EGTB) Probing (for ply > 0 child evaluations)
-        let resolved_count = (board.x_supers | board.o_supers | board.get_tied_mask()).count_ones();
+        let resolved_count = board.get_resolved_count();
         if ply > 0 && resolved_count >= 7 {
             if let Some(ref egtb) = self.egtb {
-                if let Some(res) = egtb.probe(board, zobrist_constants) {
+                if let Some(res) = egtb.probe(board) {
                     let score = match res {
                         GameResult::P1Win => {
                             if board.x_to_move { 100_000 } else { -100_000 }
@@ -307,10 +488,8 @@ impl AlphaBetaV2Bot {
         }
 
         let tt_best = self.tt.get(&hash).and_then(|e| e.best_move);
-        let k1 = if ply < MAX_PLY { self.killers[ply][0] } else { None };
-        let k2 = if ply < MAX_PLY { self.killers[ply][1] } else { None };
 
-        Self::order_moves(&mut moves, tt_best, k1, k2, board);
+        self.order_moves(&mut moves, tt_best, ply, prev_move, board);
 
         let mut best_score = -200_000;
         let mut best_move = moves[0];
@@ -328,6 +507,7 @@ impl AlphaBetaV2Bot {
                 ply + 1,
                 -beta,
                 -alpha,
+                Some(m),
                 zobrist_constants,
                 deadline,
                 time_exceeded,
@@ -344,11 +524,24 @@ impl AlphaBetaV2Bot {
             }
             alpha = alpha.max(score);
             if alpha >= beta {
-                // Beta cutoff: record killer move if non-tactical
-                if ply < MAX_PLY && !is_tactical {
-                    if self.killers[ply][0] != Some(m) {
-                        self.killers[ply][1] = self.killers[ply][0];
-                        self.killers[ply][0] = Some(m);
+                // Beta cutoff
+                if !is_tactical {
+                    if ply < MAX_PLY {
+                        if self.killers[ply][0] != Some(m) {
+                            self.killers[ply][1] = self.killers[ply][0];
+                            self.killers[ply][0] = Some(m);
+                        }
+                    }
+                    if let Some(prev) = prev_move {
+                        let p_idx = prev.move_index as usize;
+                        let c_idx = m.move_index as usize;
+                        self.countermoves[p_idx] = Some(m);
+                        self.history[p_idx][c_idx] = self.history[p_idx][c_idx].saturating_add((depth as u32) * (depth as u32));
+
+                        const MAX_HISTORY: u32 = 100_000;
+                        if self.history[p_idx][c_idx] > MAX_HISTORY {
+                            self.decay_history(2);
+                        }
                     }
                 }
                 break;
@@ -383,6 +576,8 @@ impl Bot for AlphaBetaV2Bot {
     fn reset(&mut self) {
         self.tt.clear();
         self.killers = [[None; 2]; MAX_PLY];
+        self.history = [[0u32; 81]; 81];
+        self.countermoves = [None; 81];
     }
 
     fn choose_move(
@@ -440,6 +635,7 @@ impl Bot for AlphaBetaV2Bot {
                 0, // Root ply = 0
                 -150_000,
                 150_000,
+                None, // Root has no previous move in search tree
                 zobrist_constants,
                 deadline,
                 &mut time_exceeded,

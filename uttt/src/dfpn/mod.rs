@@ -114,7 +114,21 @@ impl DfPnSolver {
 
             Some((true, winning_move))
         } else if root_pn.is_disproven() {
-            Some((false, None))
+            let legal_moves = board.get_legal_moves(legal_moves_lookup);
+            let mut best_move = legal_moves.first().copied();
+            let mut max_dn = 0;
+            for m in legal_moves {
+                let mut child = board.clone();
+                child.make_move(m, zobrist_constants);
+                let child_key = child.to_packed_canonical();
+                if let Some(&cached) = self.tt.get(&child_key) {
+                    if cached.dn > max_dn {
+                        max_dn = cached.dn;
+                        best_move = Some(m);
+                    }
+                }
+            }
+            Some((false, best_move))
         } else {
             None
         }

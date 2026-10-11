@@ -99,6 +99,12 @@ impl UltimateTicTacToeBoard {
             .fold(0u16, |current, next| current | next)
     }
 
+    /// Returns the number of resolved (won or tied) subboards.
+    #[inline(always)]
+    pub fn get_resolved_count(&self) -> usize {
+        (self.x_supers | self.o_supers | self.get_tied_mask()).count_ones() as usize
+    }
+
     /// Returns the canonical version of this board (canonical resolved subboards and normalized target subboard)
     pub fn to_canonical(&self) -> Self {
         crate::canonical::to_canonical_board(self)

@@ -4,6 +4,7 @@ pub mod canonical;
 pub mod dfpn;
 pub mod egtb;
 pub mod game_solving;
+pub mod nn;
 pub mod opening_book;
 pub mod packed_state;
 pub mod profile;

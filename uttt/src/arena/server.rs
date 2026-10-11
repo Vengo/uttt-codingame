@@ -200,6 +200,37 @@ impl ArenaServer {
                     });
                 Self::send_json(&mut stream, 200, &json);
             }
+            ("GET", "/api/training/status") => {
+                let json = fs::read_to_string("ml/training_status.json")
+                    .or_else(|_| fs::read_to_string("uttt-codingame/ml/training_status.json"))
+                    .or_else(|_| fs::read_to_string("../uttt-codingame/ml/training_status.json"))
+                    .or_else(|_| fs::read_to_string("training_status.json"))
+                    .unwrap_or_else(|_| {
+                        let default_json = serde_json::json!({
+                            "cycle": 0,
+                            "total_cycles": 0,
+                            "phase": "idle",
+                            "phase_description": "AlphaZero Self-Play Daemon Idle",
+                            "mcts_sims": 800,
+                            "parallel_games": 64,
+                            "champion_elo": 1500.0,
+                            "champion_generation": 0,
+                            "challenger_elo": 1500.0,
+                            "replay_buffer_size": 0,
+                            "gpu_telemetry": {
+                                "device": "NVIDIA GeForce RTX 5060 Ti",
+                                "vram_allocated_gb": 0.0,
+                                "vram_reserved_gb": 0.0,
+                                "vram_total_gb": 16.62,
+                                "utilization_pct": 0.0
+                            },
+                            "history": [],
+                            "updated_at": ""
+                        });
+                        serde_json::to_string_pretty(&default_json).unwrap_or_default()
+                    });
+                Self::send_json(&mut stream, 200, &json);
+            }
             ("GET", "/api/replays") => {
                 let mut replays = Vec::new();
                 for entry in fs::read_dir(".").into_iter().flatten().flatten() {

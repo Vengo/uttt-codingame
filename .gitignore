@@ -5,3 +5,7 @@ ml/.venv/
 *.log
 /egtb/
 *.npz
+ml/champion.pt
+ml/challenger.pt
+ml/training_status.json
+ml/champion_metadata.json

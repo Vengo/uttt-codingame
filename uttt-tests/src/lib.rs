@@ -1965,3 +1965,6 @@ pub mod canonical_state_tests;
 #[cfg(test)]
 pub mod nn_tests;
 
+#[cfg(test)]
+pub mod egtb_strict_bounds_tests;
+

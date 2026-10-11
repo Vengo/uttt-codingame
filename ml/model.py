@@ -71,7 +71,8 @@ class AlphaZeroResNet(nn.Module):
         p = F.relu(self.bn_p(self.conv_p(h)))
         p = self.fc_p(p.view(p.size(0), -1))
         if legal_mask is not None:
-            p = torch.where(legal_mask.bool(), p, torch.full_like(p, -1e9))
+            fill_val = -1e4 if p.dtype == torch.float16 else -1e9
+            p = torch.where(legal_mask.bool(), p, torch.full_like(p, fill_val))
 
         # Value head
         v = F.relu(self.bn_v(self.conv_v(h)))

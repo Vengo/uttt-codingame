@@ -35,6 +35,7 @@ fn main() {
     let mut max_positions = 500_000usize;
     let mut chunk_idx = 0usize;
     let mut total_chunks = 8usize;
+    let mut chunk_specified = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -66,6 +67,7 @@ fn main() {
             "--chunk" => {
                 if i + 1 < args.len() {
                     chunk_idx = args[i + 1].parse().unwrap_or(0);
+                    chunk_specified = true;
                     i += 1;
                 }
             }
@@ -85,27 +87,50 @@ fn main() {
 
     match tier.as_str() {
         "8" => {
-            match solver.solve_tier_8() {
+            let mf_solver = uttt::egtb::macro_factored::MacroFactoredSolver::new(&out_dir, threads);
+            match mf_solver.solve_tier_8() {
                 Ok((count, path)) => {
-                    println!("\n✅ Successfully solved Tier 8: {} canonical entries in {:?}", count, path);
+                    println!("\n✅ Successfully solved Macro-Factored Tier 8: {} canonical entries in {:?}", count, path);
                 }
                 Err(err) => eprintln!("❌ Tier 8 solver error: {}", err),
             }
         }
         "7" => {
-            match solver.solve_tier_7(max_positions) {
+            let mf_solver = uttt::egtb::macro_factored::MacroFactoredSolver::new(&out_dir, threads);
+            let empty_limit = if max_positions > 0 && max_positions <= 10 { max_positions } else { 4 };
+            match mf_solver.solve_tier_7(empty_limit) {
                 Ok((count, path)) => {
-                    println!("\n✅ Successfully solved Tier 7: {} canonical entries in {:?}", count, path);
+                    println!("\n✅ Successfully solved Macro-Factored Tier 7: {} canonical entries in {:?}", count, path);
                 }
                 Err(err) => eprintln!("❌ Tier 7 solver error: {}", err),
             }
         }
-        "6" => {
-            match solver.solve_tier_6_chunk(chunk_idx, total_chunks, max_positions) {
-                Ok((count, path)) => {
-                    println!("\n✅ Successfully solved Tier 6 Chunk {}/{}: {} canonical entries in {:?}", chunk_idx + 1, total_chunks, count, path);
+        "6" | "all6" => {
+            if chunk_specified {
+                match solver.solve_tier_6_chunk(chunk_idx, total_chunks, max_positions) {
+                    Ok((count, path)) => {
+                        println!("\n✅ Successfully solved Tier 6 Chunk {}/{}: {} canonical entries in {:?}", chunk_idx + 1, total_chunks, count, path);
+                    }
+                    Err(err) => eprintln!("❌ Tier 6 solver error: {}", err),
                 }
-                Err(err) => eprintln!("❌ Tier 6 solver error: {}", err),
+            } else {
+                println!("🚀 Streaming and Solving All {} Chunks of Tier 6 (3 Open Subboards)...", total_chunks);
+                for c in 0..total_chunks {
+                    println!("\n--- [Tier 6 Streaming Chunk {}/{}] ---", c + 1, total_chunks);
+                    if let Err(err) = solver.solve_tier_6_chunk(c, total_chunks, max_positions) {
+                        eprintln!("❌ Tier 6 chunk {} error: {}", c + 1, err);
+                        break;
+                    }
+                }
+                println!("\nMerging all completed Tier 6 chunks...");
+                let chunks_dir = out_dir.join("chunks");
+                let out_file = out_dir.join("egtb_tier6.bin");
+                match solver.merge_tier_6_chunks(&chunks_dir, &out_file) {
+                    Ok(count) => {
+                        println!("\n✅ Successfully merged Tier 6: {} canonical entries in {:?}", count, out_file);
+                    }
+                    Err(err) => eprintln!("❌ Tier 6 merge error: {}", err),
+                }
             }
         }
         "merge6" | "merge-tier6" => {

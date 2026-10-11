@@ -167,6 +167,12 @@ impl ModelInt8 {
         Self::from_bytes(DEFAULT_MODEL_BYTES).expect("Failed to load embedded default INT8 model")
     }
 
+    /// Dynamically load INT8 model from an external file on disk at runtime.
+    pub fn from_file<P: AsRef<std::path::Path>>(path: P) -> Result<Self, String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("Failed to read INT8 model file: {}", e))?;
+        Self::from_bytes(&bytes).map_err(|e| e.to_string())
+    }
+
     /// Deserialize model from a binary buffer.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, &'static str> {
         if bytes.len() < 16 {

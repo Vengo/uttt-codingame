@@ -21,6 +21,23 @@ from ml.model import AlphaZeroResNet
 from ml.dataset import UTTTEnv, check_subboard_win
 
 
+class MCTSChild:
+    __slots__ = ("action", "prior", "visit_count", "total_value", "node")
+
+    def __init__(self, action: int, prior: float):
+        self.action = action
+        self.prior = prior
+        self.visit_count = 0
+        self.total_value = 0.0
+        self.node: Optional["MCTSNode"] = None
+
+    @property
+    def q_value(self) -> float:
+        if self.visit_count == 0:
+            return 0.0
+        return self.total_value / self.visit_count
+
+
 class MCTSNode:
     __slots__ = (
         "env",
@@ -46,7 +63,7 @@ class MCTSNode:
         self.env = env
         self.parent = parent
         self.parent_action = parent_action
-        self.children: Dict[int, MCTSNode] = {}
+        self.children: Dict[int, MCTSChild] = {}
         self.prior = prior
         self.visit_count = 0
         self.total_value = 0.0
@@ -75,10 +92,10 @@ class MCTSNode:
             return 0.0
         return self.total_value / self.visit_count
 
-    def select_child(self, c_puct: float = 2.0) -> Tuple[int, "MCTSNode"]:
+    def select_child(self, c_puct: float = 2.0) -> Tuple[int, MCTSChild]:
         """Select action maximizing PUCT formula."""
         total_sqrt_n = math.sqrt(max(1, self.visit_count))
-        best_score = -1e9
+        best_score = -float('inf')
         best_action = None
         best_child = None
 
@@ -112,7 +129,7 @@ def run_batched_gpu_mcts(
     """
     model.eval()
     num_games = len(envs)
-    roots = [MCTSNode(env=copy.deepcopy(env)) for env in envs]
+    roots = [MCTSNode(env=env.clone()) for env in envs]
 
     # Initial root expansion with batched GPU evaluation
     batch_tensors = []
@@ -126,7 +143,8 @@ def run_batched_gpu_mcts(
     mask_tensor = torch.from_numpy(np.array(batch_masks, dtype=np.float32)).to(device)
 
     with torch.no_grad():
-        root_logits, root_values = model(x_tensor, mask_tensor)
+        with torch.amp.autocast("cuda" if device == "cuda" else "cpu"):
+            root_logits, root_values = model(x_tensor, mask_tensor)
         root_probs = torch.softmax(root_logits, dim=-1).cpu().numpy()
 
     for g_idx, root in enumerate(roots):
@@ -139,15 +157,11 @@ def run_batched_gpu_mcts(
         if dirichlet_eps > 0 and len(legal) > 1:
             noise = np.random.dirichlet([dirichlet_alpha] * len(legal))
             for i, m in enumerate(legal):
-                p = (1.0 - dirichlet_eps) * probs[m] + dirichlet_eps * noise[i]
-                next_env = copy.deepcopy(root.env)
-                next_env.step(m)
-                root.children[m] = MCTSNode(env=next_env, parent=root, parent_action=m, prior=p)
+                p = (1.0 - dirichlet_eps) * float(probs[m]) + dirichlet_eps * float(noise[i])
+                root.children[m] = MCTSChild(action=m, prior=p)
         else:
             for m in legal:
-                next_env = copy.deepcopy(root.env)
-                next_env.step(m)
-                root.children[m] = MCTSNode(env=next_env, parent=root, parent_action=m, prior=probs[m])
+                root.children[m] = MCTSChild(action=m, prior=float(probs[m]))
 
         root.is_expanded = True
 
@@ -164,8 +178,17 @@ def run_batched_gpu_mcts(
             node = root
             # Traverse until an unexpanded or terminal node
             while node.is_expanded and not node.is_terminal and node.children:
-                _, next_node = node.select_child(c_puct=c_puct)
-                node = next_node
+                action, child = node.select_child(c_puct=c_puct)
+                if child.node is None:
+                    next_env = node.env.clone()
+                    next_env.step(action)
+                    child.node = MCTSNode(
+                        env=next_env,
+                        parent=node,
+                        parent_action=action,
+                        prior=child.prior,
+                    )
+                node = child.node
 
             leaves.append(node)
             leaf_game_indices.append(g_idx)
@@ -191,20 +214,17 @@ def run_batched_gpu_mcts(
             mask_eval = torch.from_numpy(np.array(eval_masks, dtype=np.float32)).to(device)
 
             with torch.no_grad():
-                leaf_logits, leaf_values = model(x_eval, mask_eval)
+                with torch.amp.autocast("cuda" if device == "cuda" else "cpu"):
+                    leaf_logits, leaf_values = model(x_eval, mask_eval)
                 leaf_probs = torch.softmax(leaf_logits, dim=-1).cpu().numpy()
-                leaf_vals = leaf_values.squeeze(1).cpu().numpy()
+                leaf_vals = leaf_values.squeeze(1).float().cpu().numpy()
 
-            # Expand leaves
+            # Expand leaves lazily
             for i, leaf in enumerate(eval_leaves):
                 legal = leaf.legal_moves
                 probs = leaf_probs[i]
                 for m in legal:
-                    next_env = copy.deepcopy(leaf.env)
-                    next_env.step(m)
-                    leaf.children[m] = MCTSNode(
-                        env=next_env, parent=leaf, parent_action=m, prior=float(probs[m])
-                    )
+                    leaf.children[m] = MCTSChild(action=m, prior=float(probs[m]))
                 leaf.is_expanded = True
                 leaf.total_value = float(leaf_vals[i])
                 leaf.visit_count = 1
@@ -214,17 +234,24 @@ def run_batched_gpu_mcts(
             # Value to backpropagate from leaf's perspective
             if leaf.is_terminal:
                 v = leaf.terminal_value
+                leaf.visit_count += 1
+                leaf.total_value += v
             else:
                 v = leaf.q_value
 
             curr = leaf.parent
+            action = leaf.parent_action
             # As we go up one ply to parent, value flips sign in zero-sum game
             v = -v
             while curr is not None:
                 curr.visit_count += 1
                 curr.total_value += v
-                v = -v
+                if action is not None and action in curr.children:
+                    curr.children[action].visit_count += 1
+                    curr.children[action].total_value += (-v)  # Stored from child's perspective
+                action = curr.parent_action
                 curr = curr.parent
+                v = -v
 
     # Extract final policy distribution and chosen move for each game
     results = []

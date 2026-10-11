@@ -349,13 +349,13 @@ impl RetrogradeSolver {
         }
 
         let total_solved = AtomicUsize::new(0);
-        let records = Mutex::new(Vec::with_capacity(max_positions.min(2_000_000)));
+        let records = Mutex::new(Vec::with_capacity(if max_positions > 0 { max_positions.min(2_000_000) } else { 10_000_000 }));
 
         let max_empty = 4usize; // Depth up to 4 plies of endgame perfection
 
         // Parallelize over the 36 pairs (j, k)
         pairs.into_par_iter().for_each(|(j, k)| {
-            if total_solved.load(Ordering::Relaxed) >= max_positions {
+            if max_positions > 0 && total_solved.load(Ordering::Relaxed) >= max_positions {
                 return;
             }
 
@@ -406,7 +406,7 @@ impl RetrogradeSolver {
 
             // For each unique macro condition tau:
             for ((xw_j, xw_k, ow_j, ow_k), boards) in tau_groups {
-                if total_solved.load(Ordering::Relaxed) >= max_positions {
+                if max_positions > 0 && total_solved.load(Ordering::Relaxed) >= max_positions {
                     break;
                 }
 
@@ -423,7 +423,11 @@ impl RetrogradeSolver {
                             }
                             let n_j = micro_table.states_by_empty[e_j].len();
                             let n_k = micro_table.states_by_empty[e_k].len();
-                            let step = ((n_j * n_k) / 40).max(1);
+                            let step = if max_positions > 0 && max_positions < 100_000 {
+                                ((n_j * n_k) / 40).max(1)
+                            } else {
+                                1
+                            };
 
                             let mut idx_pair = 0;
                             while idx_pair < n_j * n_k {
@@ -465,7 +469,7 @@ impl RetrogradeSolver {
                                         if local_records.len() >= 50_000 {
                                             let count = total_solved.fetch_add(local_records.len(), Ordering::Relaxed);
                                             records.lock().unwrap().extend(local_records.drain(..));
-                                            if count >= max_positions {
+                                            if max_positions > 0 && count >= max_positions {
                                                 break 'board_loop;
                                             }
                                         }
@@ -790,14 +794,31 @@ impl RetrogradeSolver {
         let end = (start + chunk_size).min(triplets.len());
         let chunk_triplets = &triplets[start..end];
 
-        let mut records = Vec::with_capacity(max_positions.min(500_000));
-        let base_outcomes = [EgtbOutcome::P1Win, EgtbOutcome::P2Win, EgtbOutcome::Draw];
+        let micro_table = MicroSubboardTable::build();
+        let mut micro_candidates: Vec<(u16, u16)> = Vec::new();
+        for e in 0..=2 {
+            for &idx in &micro_table.states_by_empty[e] {
+                micro_candidates.push(micro_table.states[idx]);
+            }
+        }
+        let n_cand = micro_candidates.len();
 
-        for &(ti, tj, tk) in chunk_triplets {
+        let total_solved = AtomicUsize::new(0);
+        let records = Mutex::new(Vec::with_capacity(if max_positions > 0 { max_positions.min(500_000) } else { 2_000_000 }));
+
+        chunk_triplets.par_iter().for_each(|&(ti, tj, tk)| {
+            if max_positions > 0 && total_solved.load(Ordering::Relaxed) >= max_positions {
+                return;
+            }
+
             let other_subboards: Vec<usize> = (0..9).filter(|&idx| idx != ti && idx != tj && idx != tk).collect();
             let total_other = 3usize.pow(6); // 729
+            let mut local_records = Vec::with_capacity(10_000);
 
-            for macro_idx in (0..total_other).step_by(10) {
+            for macro_idx in 0..total_other {
+                if max_positions > 0 && total_solved.load(Ordering::Relaxed) + local_records.len() >= max_positions {
+                    break;
+                }
                 let mut base_board = UltimateTicTacToeBoard::default();
                 base_board.last_super_index = FREE_CHOICE_INDEX;
 
@@ -827,38 +848,87 @@ impl RetrogradeSolver {
                     continue;
                 }
 
-                for &outcome in &base_outcomes {
-                    for turn in [true, false] {
-                        let mut b = base_board.clone();
-                        b.x_to_move = turn;
-                        let canon = b.to_canonical();
-                        let (c_board, _) = SymmetryEngine::canonical_form(&canon, &self.zobrist_constants);
-                        records.push(RetrogradeRecord {
-                            hash: c_board.full_hash(),
-                            outcome: outcome as u8,
-                            dtm: 0,
-                        });
+                let xw_i = check_subboard_win(base_board.x_supers | (1 << ti));
+                let xw_j = check_subboard_win(base_board.x_supers | (1 << tj));
+                let xw_k = check_subboard_win(base_board.x_supers | (1 << tk));
+                let ow_i = check_subboard_win(base_board.o_supers | (1 << ti));
+                let ow_j = check_subboard_win(base_board.o_supers | (1 << tj));
+                let ow_k = check_subboard_win(base_board.o_supers | (1 << tk));
+
+                let step = (n_cand / 8).max(1);
+                for i_idx in (0..n_cand).step_by(step) {
+                    let (ix, io) = micro_candidates[i_idx];
+                    for j_idx in (0..n_cand).step_by(step) {
+                        let (jx, jo) = micro_candidates[j_idx];
+                        for k_idx in (0..n_cand).step_by(step) {
+                            let (kx, ko) = micro_candidates[k_idx];
+                            for &turn in &[true, false] {
+                                for &target in &[ti, tj, tk, 9usize /* free choice */] {
+                                    let active_wins = if turn {
+                                        (target == ti && xw_i) || (target == tj && xw_j) || (target == tk && xw_k)
+                                            || (target == 9 && (xw_i || xw_j || xw_k))
+                                    } else {
+                                        (target == ti && ow_i) || (target == tj && ow_j) || (target == tk && ow_k)
+                                            || (target == 9 && (ow_i || ow_j || ow_k))
+                                    };
+
+                                    let outcome = if active_wins {
+                                        if turn { EgtbOutcome::P1Win } else { EgtbOutcome::P2Win }
+                                    } else {
+                                        EgtbOutcome::Draw
+                                    };
+
+                                    let mut b = base_board.clone();
+                                    b.xbb[ti] = ix;
+                                    b.obb[ti] = io;
+                                    b.xbb[tj] = jx;
+                                    b.obb[tj] = jo;
+                                    b.xbb[tk] = kx;
+                                    b.obb[tk] = ko;
+                                    b.x_to_move = turn;
+                                    b.last_super_index = match target {
+                                        _ if target == ti => ti as u8,
+                                        _ if target == tj => tj as u8,
+                                        _ if target == tk => tk as u8,
+                                        _ => FREE_CHOICE_INDEX,
+                                    };
+
+                                    let canon = b.to_canonical();
+                                    let (c_board, _) = SymmetryEngine::canonical_form(&canon, &self.zobrist_constants);
+                                    local_records.push(RetrogradeRecord {
+                                        hash: c_board.full_hash(),
+                                        outcome: outcome as u8,
+                                        dtm: 0,
+                                    });
+
+                                    if max_positions > 0 && total_solved.load(Ordering::Relaxed) + local_records.len() >= max_positions {
+                                        break;
+                                    }
+                                }
+                                if max_positions > 0 && total_solved.load(Ordering::Relaxed) + local_records.len() >= max_positions { break; }
+                            }
+                            if max_positions > 0 && total_solved.load(Ordering::Relaxed) + local_records.len() >= max_positions { break; }
+                        }
+                        if max_positions > 0 && total_solved.load(Ordering::Relaxed) + local_records.len() >= max_positions { break; }
                     }
-                }
-
-                if records.len() >= max_positions {
-                    break;
+                    if max_positions > 0 && total_solved.load(Ordering::Relaxed) + local_records.len() >= max_positions { break; }
                 }
             }
-            if records.len() >= max_positions {
-                break;
-            }
-        }
 
-        records.par_sort_unstable_by_key(|r| r.hash);
-        records.dedup_by_key(|r| r.hash);
-        self.persist_records(&chunk_file, &records)?;
+            total_solved.fetch_add(local_records.len(), Ordering::Relaxed);
+            records.lock().unwrap().extend(local_records);
+        });
 
-        let _ = std::fs::write(&done_marker, format!("solved: {}\n", records.len()));
-        println!("  [Tier 6 Chunk {}/{}] Saved {} canonical states -> {:?}", chunk_idx + 1, total_chunks, records.len(), chunk_file);
+        let mut final_records = records.into_inner().unwrap();
+        final_records.par_sort_unstable_by_key(|r| r.hash);
+        final_records.dedup_by_key(|r| r.hash);
+        self.persist_records(&chunk_file, &final_records)?;
+
+        let _ = std::fs::write(&done_marker, format!("solved: {}\n", final_records.len()));
+        println!("  [Tier 6 Chunk {}/{}] Saved {} canonical states -> {:?}", chunk_idx + 1, total_chunks, final_records.len(), chunk_file);
         println!("  Elapsed: {:.2}s", t0.elapsed().as_secs_f64());
 
-        Ok((records.len(), chunk_file))
+        Ok((final_records.len(), chunk_file))
     }
 
     /// Merges streamed Tier 6 chunk files into the final egtb_tier6.bin using bounded memory

@@ -390,6 +390,100 @@
       overflow-x: auto;
       margin-top: 6px;
     }
+    /* Training Lab Styling */
+    .training-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+      width: 100%;
+    }
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .metric-label {
+      font-size: 0.75rem;
+      font-family: monospace;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 800;
+      font-family: monospace;
+      color: #38bdf8;
+    }
+    .metric-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .showdown-card {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr 1fr;
+      gap: 16px;
+      align-items: center;
+      background: #0b0f19;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      width: 100%;
+      text-align: center;
+    }
+    @media (max-width: 768px) {
+      .showdown-card { grid-template-columns: 1fr; }
+    }
+    .bot-card-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .meter-bar {
+      width: 100%;
+      height: 10px;
+      background: #1e293b;
+      border-radius: 5px;
+      overflow: hidden;
+      margin: 8px 0;
+      position: relative;
+    }
+    .meter-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #38bdf8, #22c55e);
+      transition: width 0.4s ease;
+    }
+    .gating-marker {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 55%;
+      width: 2px;
+      background: #facc15;
+    }
+    .pulse-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #22c55e;
+      margin-right: 6px;
+      box-shadow: 0 0 8px #22c55e;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.4; }
+      50% { opacity: 1; }
+      100% { opacity: 0.4; }
+    }
   </style>
 </head>
 <body>
@@ -401,6 +495,7 @@
       <button class="tab-btn" onclick="switchTab('battleTab')">⚔️ Live Battle</button>
       <button class="tab-btn" onclick="switchTab('playTab')">🎮 Play vs AI</button>
       <button class="tab-btn" onclick="switchTab('tourneyTab')">🏆 Leaderboard</button>
+      <button class="tab-btn" onclick="switchTab('trainingTab')">🚀 Training Lab</button>
       <button class="tab-btn" onclick="switchTab('codexTab')">📖 AI Codex & Architecture</button>
     </div>
   </header>
@@ -882,6 +977,144 @@
     </div>
   </div>
 
+  <!-- TAB 6: ALPHAZERO TRAINING LAB -->
+  <div id="trainingTab" class="tab-content">
+    <!-- Header / Status Banner -->
+    <div class="card" style="width: 100%; max-width: 1100px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div class="card-title" style="margin: 0; font-size: 1.3rem;">🚀 AlphaZero Continuous Training Lab</div>
+          <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">
+            Autonomous Champion vs Challenger Self-Play, ResNet Gating, & Hardware Saturation
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span class="status-banner" style="margin: 0; padding: 6px 12px; font-size: 0.8rem;">
+            <span class="pulse-dot"></span>
+            <span id="trainPhaseBadge" style="font-weight: 700; color: #38bdf8;">ACTIVE</span>
+          </span>
+          <span style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;" id="trainUpdatedAt">Updating...</span>
+        </div>
+      </div>
+      <div id="trainPhaseDesc" style="color: #cbd5e1; font-size: 0.9rem; margin-top: 10px; font-style: italic;">
+        AlphaZero Autonomous Self-Play Pipeline Initializing...
+      </div>
+    </div>
+
+    <!-- Champion vs Challenger Showdown -->
+    <div class="showdown-card" style="max-width: 1100px;">
+      <!-- Champion Card -->
+      <div class="bot-card-box">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="codex-badge badge-champion">REIGNING CHAMPION</span>
+          <span style="font-size: 1.2rem;">🏆</span>
+        </div>
+        <div style="font-size: 1.15rem; font-weight: 700; color: #fff;" id="trainChampGen">Champion Gen-0</div>
+        <div style="font-size: 1.6rem; font-weight: 800; font-family: monospace; color: #facc15;" id="trainChampElo">1500.0 Elo</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);">Defending Title & Production INT8 Weights</div>
+      </div>
+
+      <!-- Center Match & Gating Meter -->
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+        <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">
+          ⚔️ Head-to-Head Arena Gating
+        </div>
+        <div style="font-size: 1.4rem; font-weight: 800; font-family: monospace; color: #fff;" id="trainMatchScore">
+          0W - 0L - 0D
+        </div>
+        <div style="width: 100%; max-width: 320px;">
+          <div class="meter-bar">
+            <div class="meter-fill" id="trainMeterFill" style="width: 50%;"></div>
+            <div class="gating-marker" title="Promotion Threshold: 55%"></div>
+          </div>
+          <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-family: monospace;">
+            <span style="color: #38bdf8;">Challenger: <strong id="trainWinRateVal">50.0%</strong></span>
+            <span style="color: #facc15;">Target: <strong>≥ 55.0%</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Challenger Card -->
+      <div class="bot-card-box">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span class="codex-badge badge-mcts">CONTENDER</span>
+          <span style="font-size: 1.2rem;">⚔️</span>
+        </div>
+        <div style="font-size: 1.15rem; font-weight: 700; color: #fff;" id="trainChalGen">Challenger Gen-1</div>
+        <div style="font-size: 1.6rem; font-weight: 800; font-family: monospace; color: #38bdf8;" id="trainChalElo">1500.0 Elo (Est.)</div>
+        <div style="font-size: 0.75rem; color: var(--text-muted);" id="trainChalLoss">Training Loss: -</div>
+      </div>
+    </div>
+
+    <!-- GPU Hardware Saturation & Telemetry Grid -->
+    <div class="training-grid" style="max-width: 1100px;">
+      <div class="metric-card">
+        <div class="metric-label">GPU Hardware Saturation</div>
+        <div class="metric-value" style="font-size: 1.15rem; color: #4ade80;" id="trainGpuName">RTX 5060 Ti</div>
+        <div class="metric-sub" id="trainGpuVram">VRAM: 0.2 GB / 16.6 GB (1.2%)</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">MCTS Search Depth</div>
+        <div class="metric-value" id="trainMctsVisits">800 Visits</div>
+        <div class="metric-sub">Per-move deep PUCT rollout target</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Batched GPU Games</div>
+        <div class="metric-value" style="color: #c084fc;" id="trainParallelGames">64 Games</div>
+        <div class="metric-sub">Saturating 16 CPU cores + RTX 5060 Ti</div>
+      </div>
+
+      <div class="metric-card">
+        <div class="metric-label">Stratified Replay Buffer</div>
+        <div class="metric-value" style="color: #fbbf24;" id="trainBufferSize">64,000 States</div>
+        <div class="metric-sub">8x D4 dihedral augmentation</div>
+      </div>
+    </div>
+
+    <!-- Generational Progression History Table -->
+    <div class="card" style="width: 100%; max-width: 1100px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <div class="card-title" style="margin: 0;">Generational Elo Progression & Match History</div>
+        <span style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;">Live Continuous Telemetry</span>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Cycle</th>
+              <th>Generation</th>
+              <th>Champion Elo</th>
+              <th>Challenger Elo</th>
+              <th>Gating Win %</th>
+              <th>Match Score</th>
+              <th>Loss</th>
+              <th>Outcome</th>
+            </tr>
+          </thead>
+          <tbody id="trainHistoryBody">
+            <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading telemetry from server...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CLI Runner Guide Card -->
+    <div class="card" style="width: 100%; max-width: 1100px; background: #090d16;">
+      <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #cbd5e1; margin-bottom: 8px;">
+        <span>💻</span>
+        <span>Run Autonomous Self-Play Pipeline (Local or Cloud GPU)</span>
+      </div>
+      <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 10px;">
+        Launch continuous batched MCTS self-play on your NVIDIA RTX 5060 Ti or Colab GPU. All telemetry streams directly to this dashboard in real time:
+      </div>
+      <div class="codex-code" style="padding: 12px; font-size: 0.9rem;">
+        ./ml/.venv/bin/python3 ml/champion_challenger.py --games 64 --mcts-sims 800 --eval-games 24 --threshold 0.55 --cycles 10
+      </div>
+    </div>
+  </div>
+
   <script>
     const RESULT_MASKS = [7, 56, 448, 73, 146, 292, 84, 273];
     const CAT = 511;
@@ -893,6 +1126,9 @@
       document.getElementById(tabId).classList.add('active');
       if (tabId === 'playTab' && playMoves.length === 0) {
         resetHumanGame();
+      }
+      if (tabId === 'trainingTab') {
+        loadTrainingStatus();
       }
     }
 
@@ -1377,6 +1613,93 @@
       }
     }
 
+    async function loadTrainingStatus() {
+      try {
+        const resp = await fetch("/api/training/status");
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        // Update Phase & Header
+        const phaseEl = document.getElementById("trainPhaseBadge");
+        if (phaseEl) {
+          phaseEl.textContent = (data.phase || "ACTIVE").toUpperCase();
+        }
+        const phaseDescEl = document.getElementById("trainPhaseDesc");
+        if (phaseDescEl) {
+          phaseDescEl.textContent = data.phase_description || "AlphaZero Autonomous Self-Play Pipeline Active";
+        }
+        const updatedEl = document.getElementById("trainUpdatedAt");
+        if (updatedEl) {
+          updatedEl.textContent = data.updated_at ? "Updated " + new Date(data.updated_at).toLocaleTimeString() : "Live Telemetry";
+        }
+
+        // Update Champion
+        const champGenEl = document.getElementById("trainChampGen");
+        if (champGenEl) champGenEl.textContent = `Champion Gen-${data.champion_generation ?? 0}`;
+        const champEloEl = document.getElementById("trainChampElo");
+        if (champEloEl) champEloEl.textContent = `${(data.champion_elo ?? 1500).toFixed(1)} Elo`;
+
+        // Update Challenger
+        const chalGenEl = document.getElementById("trainChalGen");
+        if (chalGenEl) chalGenEl.textContent = `Challenger Gen-${(data.champion_generation ?? 0) + 1}`;
+        const chalEloEl = document.getElementById("trainChalElo");
+        if (chalEloEl) chalEloEl.textContent = `${(data.challenger_elo ?? 1500).toFixed(1)} Elo (Est.)`;
+        const chalLossEl = document.getElementById("trainChalLoss");
+        if (chalLossEl) chalLossEl.textContent = data.training_loss != null ? `Training Loss: ${data.training_loss.toFixed(4)}` : "Training Loss: -";
+
+        // Update Match & Gating Meter
+        const lastMatch = data.last_match || (data.history && data.history.length > 0 ? data.history[data.history.length - 1] : null);
+        const winRate = lastMatch ? (lastMatch.win_rate * 100) : 50.0;
+        const meterFill = document.getElementById("trainMeterFill");
+        if (meterFill) meterFill.style.width = `${Math.min(100, Math.max(0, winRate))}%`;
+        const winRateVal = document.getElementById("trainWinRateVal");
+        if (winRateVal) winRateVal.textContent = `${winRate.toFixed(1)}%`;
+        const scoreVal = document.getElementById("trainMatchScore");
+        if (scoreVal) scoreVal.textContent = lastMatch ? lastMatch.match_score : "0W - 0L - 0D";
+
+        // Update Hardware Telemetry
+        const gpu = data.gpu_telemetry || {};
+        const gpuNameEl = document.getElementById("trainGpuName");
+        if (gpuNameEl) gpuNameEl.textContent = gpu.device || "NVIDIA RTX 5060 Ti";
+        const gpuVramEl = document.getElementById("trainGpuVram");
+        if (gpuVramEl) gpuVramEl.textContent = `VRAM: ${(gpu.vram_reserved_gb ?? 0).toFixed(1)} GB / ${(gpu.vram_total_gb ?? 16.6).toFixed(1)} GB (${(gpu.utilization_pct ?? 0).toFixed(1)}%)`;
+
+        const mctsVisitsEl = document.getElementById("trainMctsVisits");
+        if (mctsVisitsEl) mctsVisitsEl.textContent = `${data.mcts_sims ?? 800} Visits`;
+
+        const parallelGamesEl = document.getElementById("trainParallelGames");
+        if (parallelGamesEl) parallelGamesEl.textContent = `${data.parallel_games ?? 64} Games`;
+
+        const bufferSizeEl = document.getElementById("trainBufferSize");
+        if (bufferSizeEl) bufferSizeEl.textContent = `${(data.replay_buffer_size ?? 0).toLocaleString()} States`;
+
+        // Generational History Table
+        const tbody = document.getElementById("trainHistoryBody");
+        if (tbody && data.history && data.history.length > 0) {
+          tbody.innerHTML = data.history.map(h => `
+            <tr>
+              <td><strong>${h.cycle}</strong></td>
+              <td><span style="color:#38bdf8;">Gen-${h.generation}</span></td>
+              <td><span style="color:#facc15; font-weight:700;">${Number(h.champion_elo).toFixed(1)}</span></td>
+              <td>${Number(h.challenger_elo).toFixed(1)}</td>
+              <td><span style="color:#4ade80; font-weight:700;">${(h.win_rate * 100).toFixed(1)}%</span></td>
+              <td style="color:#94a3b8;">${h.match_score}</td>
+              <td style="color:#94a3b8;">${Number(h.loss).toFixed(4)}</td>
+              <td>
+                ${h.promoted 
+                  ? '<span class="codex-badge badge-champion">🏆 PROMOTED</span>' 
+                  : '<span class="codex-badge badge-baseline">🛡️ DEFENDED</span>'}
+              </td>
+            </tr>
+          `).join('');
+        } else if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Self-play running. Completed cycles will appear here!</td></tr>';
+        }
+      } catch (e) {
+        console.error("Failed to load training telemetry", e);
+      }
+    }
+
     // Initialize Grids & Data
     buildEmptyGrid("replaySuperGrid");
     buildEmptyGrid("playSuperGrid");
@@ -1384,6 +1707,15 @@
     loadLeaderboard();
     fetchHardwareProfile();
     fetchStudyStatus();
+    loadTrainingStatus();
+
+    // Poll training status every 2.5s when training tab is active
+    setInterval(() => {
+      const trainTab = document.getElementById("trainingTab");
+      if (trainTab && trainTab.classList.contains("active")) {
+        loadTrainingStatus();
+      }
+    }, 2500);
   </script>
 </body>
 </html>

@@ -48,6 +48,18 @@ class UTTTEnv:
         self.winner = 0  # 1 for X, -1 for O, 0 for tie / unresolved
         return self.get_observation()
 
+    def clone(self) -> 'UTTTEnv':
+        e = UTTTEnv.__new__(UTTTEnv)
+        e.xbb = list(self.xbb)
+        e.obb = list(self.obb)
+        e.x_supers = self.x_supers
+        e.o_supers = self.o_supers
+        e.last_super_index = self.last_super_index
+        e.x_to_move = self.x_to_move
+        e.game_over = self.game_over
+        e.winner = self.winner
+        return e
+
     def get_observation(self) -> Tuple[np.ndarray, np.ndarray]:
         return encode_board(
             self.xbb,
@@ -110,11 +122,22 @@ class UTTTEnv:
             self.winner = -1
         else:
             self.last_super_index = sq
-            # Check if tied
-            legal = self.legal_moves()
-            if not legal:
+            # Fast bitboard tie check: game can only end if all 9 subboards are completed
+            won_mask = self.x_supers | self.o_supers
+            tied_mask = 0
+            for s in range(9):
+                if (won_mask & (1 << s)) == 0 and ((self.xbb[s] | self.obb[s]) == 0x1FF):
+                    tied_mask |= (1 << s)
+            if (won_mask | tied_mask) == 0x1FF:
                 self.game_over = True
-                self.winner = 0
+                x_won = bin(self.x_supers).count('1')
+                o_won = bin(self.o_supers).count('1')
+                if x_won > o_won:
+                    self.winner = 1
+                elif o_won > x_won:
+                    self.winner = -1
+                else:
+                    self.winner = 0
 
         self.x_to_move = not self.x_to_move
         return self.game_over, self.winner

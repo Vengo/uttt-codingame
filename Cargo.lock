@@ -1136,6 +1136,7 @@ dependencies = [
  "memmap2",
  "pprof",
  "rand",
+ "rayon",
  "serde",
  "serde_json",
 ]

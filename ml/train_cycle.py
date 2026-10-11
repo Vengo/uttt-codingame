@@ -25,6 +25,8 @@ from torch.utils.data import DataLoader
 from ml.model import AlphaZeroResNet
 from ml.dataset import UTTTEnv, UTTTDataset, augment_d4, load_replays_from_files
 from ml.export_int8 import export_model_int8
+from ml.batched_mcts import run_batched_mcts_self_play
+from ml.replay_buffer import StratifiedReplayBuffer
 
 
 def run_batched_self_play(
@@ -188,6 +190,10 @@ def run_cycle(
     epochs_per_iter: int = 4,
     batch_size: int = 64,
     lr: float = 1e-3,
+    use_mcts: bool = False,
+    mcts_sims: int = 32,
+    buffer_capacity: int = 500_000,
+    buffer_checkpoint: str = "ml/replay_buffer_checkpoint.npz",
     checkpoint_path: str = "ml/model_checkpoint.pt",
     output_bin: str = "ml/model_int8.bin",
     sync_to_rust: bool = True,
@@ -199,6 +205,8 @@ def run_cycle(
     if device == "cuda":
         print(f"  GPU Device: {torch.cuda.get_device_name(0)}")
         print(f"  Batch Games per Step: {games_per_iter}")
+        print(f"  MCTS Mode: {'Batched GPU MCTS (' + str(mcts_sims) + ' sims)' if use_mcts else '1-Ply Fast Self-Play'}")
+        print(f"  Buffer Capacity: {buffer_capacity:,} states")
 
     model = AlphaZeroResNet().to(device)
     if os.path.exists(checkpoint_path):
@@ -211,45 +219,100 @@ def run_cycle(
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
 
-    # Seed buffer with historical and newly generated expert replays
-    replay_files = [
-        "ml_replays_ab_mcts.json",
-        "ml_replays_ab_rb.json",
-        "ml_replays_v2_ab.json",
-        "replay_ab_vs_hmcts.json",
-        "replay_alphabeta_vs_rule_based.json",
-        "replay_mcts_vs_original_umcts.json",
-        "replay_v2_vs_mcts.json",
-    ]
-    buffer = load_replays_from_files(replay_files)
-    print(f"  Seeded buffer with {len(buffer)} replay samples.")
+    # Initialize Stratified Replay Buffer
+    replay_buffer = StratifiedReplayBuffer(capacity=buffer_capacity)
+    loaded_states = 0
+    if os.path.exists(buffer_checkpoint):
+        loaded_states = replay_buffer.load(buffer_checkpoint)
+
+    if loaded_states == 0:
+        # Seed buffer with historical and newly generated expert replays
+        replay_files = [
+            "ml_replays_ab_mcts.json",
+            "ml_replays_ab_rb.json",
+            "ml_replays_v2_ab.json",
+            "replay_ab_vs_hmcts.json",
+            "replay_alphabeta_vs_rule_based.json",
+            "replay_mcts_vs_original_umcts.json",
+            "replay_v2_vs_mcts.json",
+            "replay_az_rb.json",
+        ]
+        raw_samples = load_replays_from_files(replay_files)
+        for obs, mask, pol, val in raw_samples:
+            replay_buffer.add_sample(obs, mask, pol, val, game_length=35, tier="grandmaster")
+        print(f"  Seeded stratified buffer with {len(replay_buffer):,} expert samples.")
 
     for it in range(1, iterations + 1):
         t0 = time.time()
         print(f"\n--- [Cycle {it}/{iterations}] Generating GPU Self-Play Games ---")
         temp = 1.0 if it == 1 else 0.7
-        new_samples = run_batched_self_play(
-            model,
-            num_games=games_per_iter,
-            device=device,
-            temperature=temp,
-        )
-        buffer.extend(new_samples)
-        # Keep recent 120,000 samples
-        if len(buffer) > 120000:
-            buffer = buffer[-120000:]
 
-        print(f"  Generated {len(new_samples)} augmented samples. Replay buffer: {len(buffer)} samples.")
+        if use_mcts:
+            mcts_samples, mcts_stats = run_batched_mcts_self_play(
+                model=model,
+                num_games=games_per_iter,
+                num_simulations=mcts_sims,
+                device=device,
+                temperature=temp,
+            )
+            for obs, mask, pol, val in mcts_samples:
+                replay_buffer.add_sample(
+                    obs, mask, pol, val,
+                    game_length=int(mcts_stats.get("avg_game_length", 30)),
+                    tier="deep_mcts" if mcts_sims >= 32 else "self_play",
+                )
+            print(f"  Batched GPU MCTS: {len(mcts_samples)} samples (X:{mcts_stats['x_wins']}, O:{mcts_stats['o_wins']}, Ties:{mcts_stats['draws']})")
+        else:
+            new_samples = run_batched_self_play(
+                model,
+                num_games=games_per_iter,
+                device=device,
+                temperature=temp,
+            )
+            for obs, mask, pol, val in new_samples:
+                replay_buffer.add_sample(obs, mask, pol, val, game_length=30, tier="self_play")
+            print(f"  Fast Self-Play: {len(new_samples)} samples.")
 
-        dataset = UTTTDataset(buffer)
-        loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, drop_last=False)
+        print(f"  Replay buffer total size: {len(replay_buffer):,} states.")
 
-        print(f"--- [Cycle {it}/{iterations}] Training Dual-Headed ResNet ({epochs_per_iter} epochs) ---")
+        steps_per_epoch = max(20, min(150, len(replay_buffer) // batch_size))
+        print(f"--- [Cycle {it}/{iterations}] Training Dual-Headed ResNet ({epochs_per_iter} epochs, {steps_per_epoch} steps/epoch) ---")
+
+        model.train()
         for ep in range(1, epochs_per_iter + 1):
-            loss, p_loss, v_loss = train_epoch(model, loader, optimizer, device)
-            print(f"  Epoch {ep:2d}/{epochs_per_iter} | Loss: {loss:.4f} (Policy: {p_loss:.4f}, Value: {v_loss:.4f})")
+            epoch_loss = 0.0
+            epoch_p_loss = 0.0
+            epoch_v_loss = 0.0
+
+            for _ in range(steps_per_epoch):
+                x_b, m_b, p_b, v_b = replay_buffer.sample_batch(batch_size=batch_size, augment_d4_prob=1.0)
+                x_b, m_b, p_b, v_b = x_b.to(device), m_b.to(device), p_b.to(device), v_b.to(device)
+
+                optimizer.zero_grad()
+                logits, value = model(x_b, m_b)
+
+                # Policy loss (cross-entropy with target visit distribution)
+                log_probs = F.log_softmax(logits, dim=-1)
+                p_loss = -torch.sum(p_b * log_probs) / x_b.size(0)
+
+                # Value loss (mean squared error)
+                v_loss = F.mse_loss(value, v_b)
+
+                loss = p_loss + v_loss
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
+                optimizer.step()
+
+                epoch_loss += loss.item()
+                epoch_p_loss += p_loss.item()
+                epoch_v_loss += v_loss.item()
+
+            print(f"  Epoch {ep:2d}/{epochs_per_iter} | Loss: {epoch_loss/steps_per_epoch:.4f} (Policy: {epoch_p_loss/steps_per_epoch:.4f}, Value: {epoch_v_loss/steps_per_epoch:.4f})")
 
         print(f"  Cycle {it} elapsed: {time.time() - t0:.2f}s")
+
+    # Save replay buffer checkpoint
+    replay_buffer.save(buffer_checkpoint)
 
     # Save PyTorch checkpoint
     torch.save(
@@ -264,7 +327,12 @@ def run_cycle(
 
     # Export INT8 model
     print(f"Quantizing and exporting INT8 model to {output_bin}...")
-    export_model_int8(model, output_bin_path=output_bin, calibration_samples=buffer[:100])
+    calib_x, calib_m, calib_p, calib_v = replay_buffer.sample_batch(batch_size=100)
+    calib_samples = [
+        (calib_x[i].numpy(), calib_m[i].numpy(), calib_p[i].numpy(), calib_v[i].item())
+        for i in range(100)
+    ]
+    export_model_int8(model, output_bin_path=output_bin, calibration_samples=calib_samples)
 
     if sync_to_rust:
         rust_dest = "uttt/src/nn/model_int8.bin"
@@ -282,6 +350,9 @@ if __name__ == "__main__":
     parser.add_argument("--games", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--use-mcts", action="store_true", help="Enable batched GPU MCTS self-play")
+    parser.add_argument("--mcts-sims", type=int, default=32, help="Number of MCTS simulations per move")
+    parser.add_argument("--buffer-capacity", type=int, default=500_000, help="Replay buffer capacity")
     args = parser.parse_args()
 
     run_cycle(
@@ -289,4 +360,7 @@ if __name__ == "__main__":
         games_per_iter=args.games,
         epochs_per_iter=args.epochs,
         lr=args.lr,
+        use_mcts=args.use_mcts,
+        mcts_sims=args.mcts_sims,
+        buffer_capacity=args.buffer_capacity,
     )

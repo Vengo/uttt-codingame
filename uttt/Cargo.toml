@@ -20,6 +20,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 pprof = { version = "0.13", features = ["flamegraph"] }
 memmap2 = "0.9"
+rayon = "1.10"
 
 [lib]
 name = "uttt"
@@ -36,6 +37,10 @@ path = "src/bin/runlocal.rs"
 [[bin]]
 name = "arena"
 path = "src/bin/arena.rs"
+
+[[bin]]
+name = "solve_egtb"
+path = "src/bin/solve_egtb.rs"
 
 [[bench]]
 name = "uttt_benches"

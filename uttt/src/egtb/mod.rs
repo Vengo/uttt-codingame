@@ -11,6 +11,8 @@ use crate::game_solving::{AlphaBetaCompatible, GameMove, GameResult};
 use crate::symmetry::SymmetryEngine;
 use crate::uttt_trait_solving::{UltimateTicTacToeBoard, ZobristConstants};
 
+pub mod retrograde;
+
 const EGTB_MAGIC: &[u8; 8] = b"UTTTEG01";
 pub const DEFAULT_EGTB_DIR_ZFS: &str = "/my-zraid/uttt/egtb";
 pub const DEFAULT_EGTB_PATH_ZFS: &str = "/my-zraid/uttt/egtb/egtb_4plus.bin";

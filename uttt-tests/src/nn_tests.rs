@@ -164,3 +164,22 @@ fn test_alphazero_bot_latency() {
     // Sanity check: each forward pass should complete well within 50 ms even in unoptimized debug mode
     assert!(avg_micros < 50_000, "Inference too slow: {} µs", avg_micros);
 }
+
+#[test]
+fn test_policy_alphabeta_bot_creation_and_search() {
+    let mut bot = create_bot("policy_alphabeta").expect("PolicyAlphaBetaBot must be registered");
+    assert_eq!(bot.name(), "PolicyAlphaBetaBot");
+
+    let board = UltimateTicTacToeBoard::default();
+    let z_consts = UltimateTicTacToeBoard::get_zobrist_constants();
+    let chosen = bot.choose_move(&board, &[], &z_consts, Duration::from_millis(100));
+
+    assert!(chosen.move_index < 81, "Chosen move index must be valid [0..80]");
+    let legal = board.get_legal_moves_fast();
+    assert!(
+        legal.iter().any(|&m| m.move_index == chosen.move_index),
+        "Chosen move {} must be legal",
+        chosen.move_index
+    );
+}
+

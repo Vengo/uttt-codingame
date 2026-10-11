@@ -9,3 +9,4 @@ ml/champion.pt
 ml/challenger.pt
 ml/training_status.json
 ml/champion_metadata.json
+ml/.test_*

@@ -214,7 +214,7 @@ def run_champion_challenger(
     parallel_games: int = 1024,
     mcts_simulations: int = 800,
     moves_per_cycle: int = 40,
-    eval_games: int = 24,
+    eval_games: int = 40,
     eval_sims: int = 200,
     train_epochs: int = 3,
     lr: float = 1e-3,
@@ -223,9 +223,31 @@ def run_champion_challenger(
     device: str = "cuda",
     status_file: str = "ml/training_status.json",
     frontend_status: Optional[str] = "../uttt-frontend/training_status.json",
+    test_mode: bool = False,
 ):
+    if not test_mode:
+        # Enforce statistical significance in production tournaments
+        if eval_games < 40:
+            print(f"Notice: Setting gating evaluation games to 40 (was {eval_games}) for statistical significance.")
+            eval_games = 40
+        if promote_threshold < 0.55:
+            print(f"Notice: Enforcing strict promotion threshold at >= 0.55 (requested {promote_threshold}).")
+            promote_threshold = 0.55
+        champion_path = "ml/champion.pt"
+        challenger_path = "ml/challenger.pt"
+        buffer_path = "ml/replay_buffer_checkpoint.npz"
+        meta_file = "ml/champion_metadata.json"
+    else:
+        print("⚠️ TEST MODE ENABLED: Using isolated temporary checkpoints and metadata.")
+        champion_path = "ml/.test_champion.pt"
+        challenger_path = "ml/.test_challenger.pt"
+        buffer_path = "ml/.test_buffer.npz"
+        meta_file = "ml/.test_champion_metadata.json"
+        status_file = "ml/.test_training_status.json"
+        frontend_status = None
+
     print("============================================================")
-    print("  AlphaZero Champion vs Challenger Autonomous Loop")
+    print(f"  AlphaZero Champion vs Challenger Autonomous Loop {'[TEST MODE]' if test_mode else ''}")
     print(f"  GPU Hardware: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
     print(f"  Parallel Games per Move: {parallel_games}")
     print(f"  MCTS Simulations per Move: {mcts_simulations} (Deep AlphaZero)")
@@ -234,9 +256,6 @@ def run_champion_challenger(
     print(f"  Evaluation Gating Games: {eval_games} (Promo Threshold: {promote_threshold*100:.0f}%)")
     print("============================================================")
 
-    champion_path = "ml/champion.pt"
-    challenger_path = "ml/challenger.pt"
-    buffer_path = "ml/replay_buffer_checkpoint.npz"
     initial_ckpt = "ml/model_checkpoint.pt"
 
     # Load or initialize Champion model
@@ -259,9 +278,11 @@ def run_champion_challenger(
     if os.path.exists(buffer_path):
         replay_buffer.load(buffer_path)
         print(f"Loaded existing Replay Buffer: {len(replay_buffer):,} states")
+    elif test_mode and os.path.exists("ml/replay_buffer_checkpoint.npz"):
+        replay_buffer.load("ml/replay_buffer_checkpoint.npz")
+        print(f"Loaded production Replay Buffer for test mode: {len(replay_buffer):,} states")
 
     # Initialize metadata
-    meta_file = "ml/champion_metadata.json"
     if os.path.exists(meta_file):
         with open(meta_file, "r") as f:
             meta = json.load(f)
@@ -444,20 +465,23 @@ def run_champion_challenger(
                 "generation": meta["generation"],
                 "elo": meta["champion_elo"],
             }, champion_path)
-            shutil.copyfile(champion_path, initial_ckpt)
+            if not test_mode:
+                shutil.copyfile(champion_path, initial_ckpt)
 
-            # Export INT8 model and synchronize to pure Rust engine
-            rust_bin = "uttt/src/nn/model_int8.bin"
-            calib_x, calib_m, calib_p, calib_v = replay_buffer.sample_batch(batch_size=100)
-            calib_samples = [
-                (calib_x[i], calib_m[i], calib_p[i], float(calib_v[i]))
-                for i in range(min(100, len(calib_x)))
-            ]
-            export_model_int8(champion, output_bin_path=rust_bin, calibration_samples=calib_samples)
-            champion = champion.to(device)
-            champion.eval()
-            print(f"🏆 PROMOTION! Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
-            print(f"  Synchronized INT8 weights to {rust_bin}")
+                # Export INT8 model and synchronize to pure Rust engine
+                rust_bin = "uttt/src/nn/model_int8.bin"
+                calib_x, calib_m, calib_p, calib_v = replay_buffer.sample_batch(batch_size=100)
+                calib_samples = [
+                    (calib_x[i], calib_m[i], calib_p[i], float(calib_v[i]))
+                    for i in range(min(100, len(calib_x)))
+                ]
+                export_model_int8(champion, output_bin_path=rust_bin, calibration_samples=calib_samples)
+                champion = champion.to(device)
+                champion.eval()
+                print(f"🏆 PROMOTION! Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
+                print(f"  Synchronized INT8 weights to {rust_bin}")
+            else:
+                print(f"🏆 [TEST MODE] Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
         else:
             print(f"🛡️  DEFENSE! Champion retains title (Challenger: {win_rate*100:.1f}% < {promote_threshold*100:.0f}%)")
 
@@ -511,6 +535,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--status-file", type=str, default="ml/training_status.json")
     parser.add_argument("--frontend-status", type=str, default="../uttt-frontend/training_status.json")
+    parser.add_argument("--test-mode", action="store_true", help="Run with isolated temporary checkpoints to protect production state")
     args = parser.parse_args()
 
     run_champion_challenger(
@@ -527,4 +552,5 @@ if __name__ == "__main__":
         device=args.device,
         status_file=args.status_file,
         frontend_status=args.frontend_status,
+        test_mode=args.test_mode,
     )

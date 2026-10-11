@@ -190,15 +190,13 @@ class ContiguousStratifiedReplayBuffer:
         if total == 0:
             raise ValueError("Cannot sample from an empty ReplayBuffer")
 
-        # Determine allocation per tier based on available count
-        # Target proportions: 30% GM, 35% Deep/Draw, 35% Self-Play
+        # Allocate batch proportionally to actual populated counts to prevent oversampling tiny slices
         p_gm = self.gm_count / total
         p_deep = self.deep_draw_count / total
         p_sp = self.self_play_count / total
 
-        # If a tier has items, give it a proportionate slice
-        target_gm = int(batch_size * 0.30) if self.gm_count > 0 else 0
-        target_deep = int(batch_size * 0.35) if self.deep_draw_count > 0 else 0
+        target_gm = int(round(batch_size * p_gm))
+        target_deep = int(round(batch_size * p_deep))
         target_sp = batch_size - target_gm - target_deep
 
         # Clamp to available counts

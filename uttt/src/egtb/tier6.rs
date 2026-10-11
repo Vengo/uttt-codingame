@@ -455,7 +455,20 @@ pub fn transition_tier6_to_tier7(
         micro_composite,
     );
 
-    prober.probe_tier_7_key(key).unwrap_or(EgtbOutcome::Unknown)
+    if let Some(outcome) = prober.probe_tier_7_key(key) {
+        if outcome != EgtbOutcome::Unknown {
+            return outcome;
+        }
+    }
+
+    // Terminal tiebreaker evaluation fallback
+    if delta_prime > 0 {
+        EgtbOutcome::P1Win
+    } else if delta_prime < 0 {
+        EgtbOutcome::P2Win
+    } else {
+        EgtbOutcome::Draw
+    }
 }
 
 /// Encodes a Tier 6 tablebase position into a 64-bit key
@@ -504,6 +517,15 @@ impl Tier6LayerTable {
             n_l,
             // 8 states per cell configuration: 4 targets (j, k, l, Free) * 2 turns
             data: vec![EgtbOutcome::Draw; n_j * n_k * n_l * 8],
+        }
+    }
+
+    pub fn empty() -> Self {
+        Tier6LayerTable {
+            n_j: 0,
+            n_k: 0,
+            n_l: 0,
+            data: Vec::new(),
         }
     }
 

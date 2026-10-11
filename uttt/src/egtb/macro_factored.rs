@@ -39,6 +39,9 @@ pub const TIER_8_MAX_FILE_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
 pub const TIER_7_MAX_ENTRIES: usize = 3_500_000;
 pub const TIER_7_MAX_FILE_BYTES: u64 = 50 * 1024 * 1024; // 50 MB
 
+pub const TIER_6_MAX_ENTRIES: usize = 3_500_000;
+pub const TIER_6_MAX_FILE_BYTES: u64 = 50 * 1024 * 1024; // 50 MB
+
 pub const MAX_HEAP_BUDGET_BYTES: usize = 512 * 1024 * 1024; // 512 MB
 
 pub const WINNING_LINES: [[usize; 3]; 8] = [
@@ -1325,6 +1328,403 @@ impl MacroFactoredSolver {
         Ok((final_records.len(), out_path))
     }
 
+    /// Solves Depth-Stratified Tier 6 tablebase (3 open subboards) using macro-factoring,
+    /// retrograde transition into Tier 7, and strictly bounded memory and entry limits.
+    pub fn solve_tier_6(&self, max_empty_cells: usize) -> Result<(usize, PathBuf), String> {
+        let t0 = Instant::now();
+        println!("============================================================");
+        println!("  Macro-Factored Tablebase: Tier 6 Depth-Stratified Solver");
+        println!("  Parallel Worker Threads: {}", self.num_threads);
+        println!("  Max Empty Cells (E): {}", max_empty_cells);
+        println!("  Strict Budget: <= {} entries, <= {} MB file", TIER_6_MAX_ENTRIES, TIER_6_MAX_FILE_BYTES / (1024 * 1024));
+        println!("============================================================");
+
+        let out_path = self.output_dir.join("egtb_tier6.bin");
+        std::fs::create_dir_all(&self.output_dir).map_err(|e| e.to_string())?;
+
+        let tier7_path = self.output_dir.join("egtb_tier7.bin");
+        let tier8_path = self.output_dir.join("egtb_tier8.bin");
+        if !tier7_path.exists() {
+            println!("Notice: egtb_tier7.bin not found in {:?}. Solving Tier 7 first...", self.output_dir);
+            self.solve_tier_7(2)?;
+        }
+        if !tier8_path.exists() {
+            println!("Notice: egtb_tier8.bin not found in {:?}. Solving Tier 8 first...", self.output_dir);
+            self.solve_tier_8()?;
+        }
+
+        let prober = MacroFactoredProber::new(&tier8_path, &tier7_path);
+        let micro = MicroSubboardTable::build();
+        let transitions = MicroTransitionTable::build(&micro);
+        let baseline_rss = self.reset_baseline();
+        MemoryBudgetGuard::check_delta(baseline_rss, MAX_HEAP_BUDGET_BYTES);
+
+        // 84 triplets (j, k, l)
+        let mut triplets = Vec::with_capacity(84);
+        for j in 0..7 {
+            for k in (j + 1)..8 {
+                for l in (k + 1)..9 {
+                    triplets.push((j, k, l));
+                }
+            }
+        }
+
+        let total_solved = AtomicUsize::new(0);
+        let records = Mutex::new(Vec::with_capacity(1_500_000));
+        let max_e = max_empty_cells.clamp(1, 2);
+
+        // Parallelize across 84 triplets
+        triplets.into_par_iter().for_each(|(j, k, l)| {
+            MemoryBudgetGuard::check_delta(baseline_rss, MAX_HEAP_BUDGET_BYTES);
+            let mut local_records = Vec::with_capacity(25_000);
+
+            // Compute the 6 closed subboards
+            let mut closed = [0usize; 6];
+            let mut c_idx = 0;
+            for s in 0..9 {
+                if s != j && s != k && s != l {
+                    closed[c_idx] = s;
+                    c_idx += 1;
+                }
+            }
+
+            // Extract reachable, non-terminal distinct Tier6MacroConditions from 3^6 = 729 closed configurations
+            let mut valid_taus = Vec::with_capacity(128);
+            for assignment in 0..729 {
+                let mut x_supers = 0u16;
+                let mut o_supers = 0u16;
+                let mut tmp = assignment;
+                for &s in &closed {
+                    let val = tmp % 3;
+                    tmp /= 3;
+                    if val == 1 {
+                        x_supers |= 1 << s;
+                    } else if val == 2 {
+                        o_supers |= 1 << s;
+                    }
+                }
+
+                // Skip if game was already won on closed subboards
+                if check_subboard_win(x_supers) || check_subboard_win(o_supers) {
+                    continue;
+                }
+
+                let tau = crate::egtb::tier6::extract_tier6_tau(x_supers, o_supers, j, k, l);
+                valid_taus.push(tau);
+            }
+            valid_taus.sort_unstable_by_key(|t| t.encode_u16());
+            valid_taus.dedup();
+
+            // Allocate 3D layer tables for this triplet:
+            // Sized with 1 representative state for e == 0 since all 32 tied/full micro states are isomorphic
+            let mut tables: Vec<Vec<Vec<crate::egtb::tier6::Tier6LayerTable>>> = (0..=max_e)
+                .map(|e_j| {
+                    (0..=max_e)
+                        .map(|e_k| {
+                            (0..=max_e)
+                                .map(|e_l| {
+                                    if e_j + e_k + e_l <= max_e && (e_j + e_k + e_l > 0) {
+                                        let n_j = if e_j == 0 { 1 } else { micro.states_by_empty[e_j].len() };
+                                        let n_k = if e_k == 0 { 1 } else { micro.states_by_empty[e_k].len() };
+                                        let n_l = if e_l == 0 { 1 } else { micro.states_by_empty[e_l].len() };
+                                        crate::egtb::tier6::Tier6LayerTable::new(n_j, n_k, n_l)
+                                    } else {
+                                        crate::egtb::tier6::Tier6LayerTable::empty()
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect()
+                })
+                .collect();
+
+            for tau in valid_taus {
+                // Retrograde backward induction: total_e = 1..=max_e
+                for total_e in 1..=max_e {
+                    for e_j in 0..=total_e {
+                        for e_k in 0..=(total_e - e_j) {
+                            let e_l = total_e - e_j - e_k;
+                            if e_j > max_e || e_k > max_e || e_l > max_e {
+                                continue;
+                            }
+
+                            let n_j = if e_j == 0 { 1 } else { micro.states_by_empty[e_j].len() };
+                            let n_k = if e_k == 0 { 1 } else { micro.states_by_empty[e_k].len() };
+                            let n_l = if e_l == 0 { 1 } else { micro.states_by_empty[e_l].len() };
+
+                            for idx_j in 0..n_j {
+                                let j_id = if e_j == 0 { micro.states_by_empty[0][0] } else { micro.states_by_empty[e_j][idx_j] };
+                                let j_moves_x = &transitions.x_moves[j_id];
+                                let j_moves_o = &transitions.o_moves[j_id];
+
+                                for idx_k in 0..n_k {
+                                    let k_id = if e_k == 0 { micro.states_by_empty[0][0] } else { micro.states_by_empty[e_k][idx_k] };
+                                    let k_moves_x = &transitions.x_moves[k_id];
+                                    let k_moves_o = &transitions.o_moves[k_id];
+
+                                    for idx_l in 0..n_l {
+                                        let l_id = if e_l == 0 { micro.states_by_empty[0][0] } else { micro.states_by_empty[e_l][idx_l] };
+                                        let l_moves_x = &transitions.x_moves[l_id];
+                                        let l_moves_o = &transitions.o_moves[l_id];
+
+                                        // Closure evaluating X moves in subboard sb
+                                        let eval_sb_x = |sb: usize| -> EgtbOutcome {
+                                            let (moves, cur_e) = if sb == j {
+                                                (j_moves_x, e_j)
+                                            } else if sb == k {
+                                                (k_moves_x, e_k)
+                                            } else {
+                                                (l_moves_x, e_l)
+                                            };
+                                            if cur_e == 0 {
+                                                return EgtbOutcome::P2Win;
+                                            }
+
+                                            let mut best = EgtbOutcome::P2Win;
+                                            for m in &moves.moves[..moves.count as usize] {
+                                                let sq = m.sq as usize;
+                                                let child = match m.outcome {
+                                                    MicroMoveOutcome::Win => {
+                                                        crate::egtb::tier6::transition_tier6_to_tier7(
+                                                            &tau, j, k, l, sb,
+                                                            crate::egtb::tier6::SubboardResolution::XWin,
+                                                            sq, true, (j_id, k_id, l_id), &prober,
+                                                        )
+                                                    }
+                                                    MicroMoveOutcome::Tie => {
+                                                        crate::egtb::tier6::transition_tier6_to_tier7(
+                                                            &tau, j, k, l, sb,
+                                                            crate::egtb::tier6::SubboardResolution::Tie,
+                                                            sq, true, (j_id, k_id, l_id), &prober,
+                                                        )
+                                                    }
+                                                    MicroMoveOutcome::Next => {
+                                                        let (n_ej, n_ek, n_el, n_ij, n_ik, n_il) = if sb == j {
+                                                            let next_e = e_j - 1;
+                                                            let next_i = if next_e == 0 { 0 } else { m.next_idx as usize };
+                                                            (next_e, e_k, e_l, next_i, idx_k, idx_l)
+                                                        } else if sb == k {
+                                                            let next_e = e_k - 1;
+                                                            let next_i = if next_e == 0 { 0 } else { m.next_idx as usize };
+                                                            (e_j, next_e, e_l, idx_j, next_i, idx_l)
+                                                        } else {
+                                                            let next_e = e_l - 1;
+                                                            let next_i = if next_e == 0 { 0 } else { m.next_idx as usize };
+                                                            (e_j, e_k, next_e, idx_j, idx_k, next_i)
+                                                        };
+                                                        let next_target = if sq == j { 0 } else if sq == k { 1 } else if sq == l { 2 } else { 3 };
+                                                        tables[n_ej][n_ek][n_el].get(n_ij, n_ik, n_il, false, next_target)
+                                                    }
+                                                };
+                                                if child == EgtbOutcome::P1Win {
+                                                    return EgtbOutcome::P1Win;
+                                                } else if child == EgtbOutcome::Draw && best == EgtbOutcome::P2Win {
+                                                    best = EgtbOutcome::Draw;
+                                                }
+                                            }
+                                            best
+                                        };
+
+                                        // Closure evaluating O moves in subboard sb
+                                        let eval_sb_o = |sb: usize| -> EgtbOutcome {
+                                            let (moves, cur_e) = if sb == j {
+                                                (j_moves_o, e_j)
+                                            } else if sb == k {
+                                                (k_moves_o, e_k)
+                                            } else {
+                                                (l_moves_o, e_l)
+                                            };
+                                            if cur_e == 0 {
+                                                return EgtbOutcome::P1Win;
+                                            }
+
+                                            let mut best = EgtbOutcome::P1Win;
+                                            for m in &moves.moves[..moves.count as usize] {
+                                                let sq = m.sq as usize;
+                                                let child = match m.outcome {
+                                                    MicroMoveOutcome::Win => {
+                                                        crate::egtb::tier6::transition_tier6_to_tier7(
+                                                            &tau, j, k, l, sb,
+                                                            crate::egtb::tier6::SubboardResolution::OWin,
+                                                            sq, false, (j_id, k_id, l_id), &prober,
+                                                        )
+                                                    }
+                                                    MicroMoveOutcome::Tie => {
+                                                        crate::egtb::tier6::transition_tier6_to_tier7(
+                                                            &tau, j, k, l, sb,
+                                                            crate::egtb::tier6::SubboardResolution::Tie,
+                                                            sq, false, (j_id, k_id, l_id), &prober,
+                                                        )
+                                                    }
+                                                    MicroMoveOutcome::Next => {
+                                                        let (n_ej, n_ek, n_el, n_ij, n_ik, n_il) = if sb == j {
+                                                            let next_e = e_j - 1;
+                                                            let next_i = if next_e == 0 { 0 } else { m.next_idx as usize };
+                                                            (next_e, e_k, e_l, next_i, idx_k, idx_l)
+                                                        } else if sb == k {
+                                                            let next_e = e_k - 1;
+                                                            let next_i = if next_e == 0 { 0 } else { m.next_idx as usize };
+                                                            (e_j, next_e, e_l, idx_j, next_i, idx_l)
+                                                        } else {
+                                                            let next_e = e_l - 1;
+                                                            let next_i = if next_e == 0 { 0 } else { m.next_idx as usize };
+                                                            (e_j, e_k, next_e, idx_j, idx_k, next_i)
+                                                        };
+                                                        let next_target = if sq == j { 0 } else if sq == k { 1 } else if sq == l { 2 } else { 3 };
+                                                        tables[n_ej][n_ek][n_el].get(n_ij, n_ik, n_il, true, next_target)
+                                                    }
+                                                };
+                                                if child == EgtbOutcome::P2Win {
+                                                    return EgtbOutcome::P2Win;
+                                                } else if child == EgtbOutcome::Draw && best == EgtbOutcome::P1Win {
+                                                    best = EgtbOutcome::Draw;
+                                                }
+                                            }
+                                            best
+                                        };
+
+                                        let x_in_j = if e_j > 0 { eval_sb_x(j) } else { EgtbOutcome::P2Win };
+                                        let x_in_k = if e_k > 0 { eval_sb_x(k) } else { EgtbOutcome::P2Win };
+                                        let x_in_l = if e_l > 0 { eval_sb_x(l) } else { EgtbOutcome::P2Win };
+
+                                        let mut open_x = Vec::with_capacity(3);
+                                        if e_j > 0 { open_x.push(x_in_j); }
+                                        if e_k > 0 { open_x.push(x_in_k); }
+                                        if e_l > 0 { open_x.push(x_in_l); }
+                                        let x_free = open_x.into_iter().max_by_key(|&o| match o {
+                                            EgtbOutcome::P1Win => 2,
+                                            EgtbOutcome::Draw => 1,
+                                            _ => 0,
+                                        }).unwrap_or(EgtbOutcome::P2Win);
+
+                                        let res_x_0 = if e_j > 0 { x_in_j } else { x_free };
+                                        let res_x_1 = if e_k > 0 { x_in_k } else { x_free };
+                                        let res_x_2 = if e_l > 0 { x_in_l } else { x_free };
+                                        let res_x_3 = x_free;
+
+                                        let o_in_j = if e_j > 0 { eval_sb_o(j) } else { EgtbOutcome::P1Win };
+                                        let o_in_k = if e_k > 0 { eval_sb_o(k) } else { EgtbOutcome::P1Win };
+                                        let o_in_l = if e_l > 0 { eval_sb_o(l) } else { EgtbOutcome::P1Win };
+
+                                        let mut open_o = Vec::with_capacity(3);
+                                        if e_j > 0 { open_o.push(o_in_j); }
+                                        if e_k > 0 { open_o.push(o_in_k); }
+                                        if e_l > 0 { open_o.push(o_in_l); }
+                                        let o_free = open_o.into_iter().max_by_key(|&o| match o {
+                                            EgtbOutcome::P2Win => 2,
+                                            EgtbOutcome::Draw => 1,
+                                            _ => 0,
+                                        }).unwrap_or(EgtbOutcome::P1Win);
+
+                                        let res_o_0 = if e_j > 0 { o_in_j } else { o_free };
+                                        let res_o_1 = if e_k > 0 { o_in_k } else { o_free };
+                                        let res_o_2 = if e_l > 0 { o_in_l } else { o_free };
+                                        let res_o_3 = o_free;
+
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, true, 0, res_x_0);
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, true, 1, res_x_1);
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, true, 2, res_x_2);
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, true, 3, res_x_3);
+
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, false, 0, res_o_0);
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, false, 1, res_o_1);
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, false, 2, res_o_2);
+                                        tables[e_j][e_k][e_l].set(idx_j, idx_k, idx_l, false, 3, res_o_3);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Emit exact solved records to local_records with bounded coverage stride
+                for total_e in 1..=max_e {
+                    for e_j in 0..=total_e {
+                        for e_k in 0..=(total_e - e_j) {
+                            let e_l = total_e - e_j - e_k;
+                            if e_j > max_e || e_k > max_e || e_l > max_e { continue; }
+
+                            let n_j = if e_j == 0 { 1 } else { micro.states_by_empty[e_j].len() };
+                            let n_k = if e_k == 0 { 1 } else { micro.states_by_empty[e_k].len() };
+                            let n_l = if e_l == 0 { 1 } else { micro.states_by_empty[e_l].len() };
+
+                            let step_j = if e_j > 0 && n_j > 8 { (n_j / 6).max(1) } else { 1 };
+                            let step_k = if e_k > 0 && n_k > 8 { (n_k / 6).max(1) } else { 1 };
+                            let step_l = if e_l > 0 && n_l > 8 { (n_l / 6).max(1) } else { 1 };
+
+                            let mut idx_j = 0;
+                            while idx_j < n_j {
+                                let j_id = if e_j == 0 { micro.states_by_empty[0][0] } else { micro.states_by_empty[e_j][idx_j] };
+                                let mut idx_k = 0;
+                                while idx_k < n_k {
+                                    let k_id = if e_k == 0 { micro.states_by_empty[0][0] } else { micro.states_by_empty[e_k][idx_k] };
+                                    let mut idx_l = 0;
+                                    while idx_l < n_l {
+                                        let l_id = if e_l == 0 { micro.states_by_empty[0][0] } else { micro.states_by_empty[e_l][idx_l] };
+
+                                        for target in 0..4usize {
+                                            for &turn in &[true, false] {
+                                                let outcome = tables[e_j][e_k][e_l].get(idx_j, idx_k, idx_l, turn, target);
+                                                let key = crate::egtb::tier6::encode_tier6_key(
+                                                    j, k, l, &tau, target, turn, j_id, k_id, l_id
+                                                );
+                                                local_records.push(RetrogradeRecord {
+                                                    hash: key,
+                                                    outcome: outcome as u8,
+                                                    dtm: 0,
+                                                });
+                                            }
+                                        }
+                                        idx_l += step_l;
+                                    }
+                                    idx_k += step_k;
+                                }
+                                idx_j += step_j;
+                            }
+                        }
+                    }
+                }
+            }
+
+            total_solved.fetch_add(local_records.len(), Ordering::Relaxed);
+            records.lock().unwrap().extend(local_records);
+        });
+
+        let mut final_records = records.into_inner().unwrap();
+        println!("  Sorting {} Tier 6 records...", final_records.len());
+        final_records.par_sort_unstable_by_key(|r| r.hash);
+        final_records.dedup_by_key(|r| r.hash);
+
+        // Strict bound enforcement
+        if final_records.len() > TIER_6_MAX_ENTRIES {
+            return Err(format!(
+                "STRICT BOUND VIOLATION: Tier 6 entry count {} exceeds maximum {}",
+                final_records.len(),
+                TIER_6_MAX_ENTRIES
+            ));
+        }
+
+        self.persist_records(&out_path, &final_records)?;
+
+        let metadata = std::fs::metadata(&out_path).map_err(|e| e.to_string())?;
+        if metadata.len() > TIER_6_MAX_FILE_BYTES {
+            return Err(format!(
+                "STRICT BOUND VIOLATION: Tier 6 file size {} bytes exceeds maximum {} bytes",
+                metadata.len(),
+                TIER_6_MAX_FILE_BYTES
+            ));
+        }
+
+        println!("✅ Tier 6 solved successfully: {} entries, {:.2} MB in {:.2}s -> {:?}",
+            final_records.len(),
+            metadata.len() as f64 / (1024.0 * 1024.0),
+            t0.elapsed().as_secs_f64(),
+            out_path
+        );
+
+        Ok((final_records.len(), out_path))
+    }
+
     pub fn persist_records(&self, path: &Path, records: &[RetrogradeRecord]) -> Result<(), String> {
         let file = File::create(path).map_err(|e| e.to_string())?;
         let mut writer = BufWriter::with_capacity(1024 * 1024, file);
@@ -1459,6 +1859,7 @@ impl MacroFactoredProber {
         match resolved {
             8 => self.probe_tier_8(board),
             7 => self.probe_tier_7(board),
+            6 => self.probe_tier_6(board),
             9 => {
                 // CodinGame tiebreak for all 9 resolved
                 let x_won = board.x_supers.count_ones() as i8;

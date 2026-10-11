@@ -106,31 +106,13 @@ fn main() {
             }
         }
         "6" | "all6" => {
-            if chunk_specified {
-                match solver.solve_tier_6_chunk(chunk_idx, total_chunks, max_positions) {
-                    Ok((count, path)) => {
-                        println!("\n✅ Successfully solved Tier 6 Chunk {}/{}: {} canonical entries in {:?}", chunk_idx + 1, total_chunks, count, path);
-                    }
-                    Err(err) => eprintln!("❌ Tier 6 solver error: {}", err),
+            let mf_solver = uttt::egtb::macro_factored::MacroFactoredSolver::new(&out_dir, threads);
+            let empty_limit = if max_positions > 0 && max_positions <= 4 { max_positions } else { 1 };
+            match mf_solver.solve_tier_6(empty_limit) {
+                Ok((count, path)) => {
+                    println!("\n✅ Successfully solved Macro-Factored Tier 6: {} canonical entries in {:?}", count, path);
                 }
-            } else {
-                println!("🚀 Streaming and Solving All {} Chunks of Tier 6 (3 Open Subboards)...", total_chunks);
-                for c in 0..total_chunks {
-                    println!("\n--- [Tier 6 Streaming Chunk {}/{}] ---", c + 1, total_chunks);
-                    if let Err(err) = solver.solve_tier_6_chunk(c, total_chunks, max_positions) {
-                        eprintln!("❌ Tier 6 chunk {} error: {}", c + 1, err);
-                        break;
-                    }
-                }
-                println!("\nMerging all completed Tier 6 chunks...");
-                let chunks_dir = out_dir.join("chunks");
-                let out_file = out_dir.join("egtb_tier6.bin");
-                match solver.merge_tier_6_chunks(&chunks_dir, &out_file) {
-                    Ok(count) => {
-                        println!("\n✅ Successfully merged Tier 6: {} canonical entries in {:?}", count, out_file);
-                    }
-                    Err(err) => eprintln!("❌ Tier 6 merge error: {}", err),
-                }
+                Err(err) => eprintln!("❌ Tier 6 solver error: {}", err),
             }
         }
         "merge6" | "merge-tier6" => {

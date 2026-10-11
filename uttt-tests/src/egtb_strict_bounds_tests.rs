@@ -9,6 +9,7 @@
 use std::time::Instant;
 use uttt::egtb::macro_factored::{
     extract_augmented_tau, MacroFactoredSolver, MemoryBudgetGuard,
+    TIER_6_MAX_ENTRIES, TIER_6_MAX_FILE_BYTES,
     TIER_7_MAX_ENTRIES, TIER_7_MAX_FILE_BYTES, TIER_8_MAX_ENTRIES, TIER_8_MAX_FILE_BYTES,
     MAX_HEAP_BUDGET_BYTES,
 };
@@ -158,3 +159,118 @@ fn test_memory_budget_guard_under_budget() {
     let rss = MemoryBudgetGuard::get_rss_bytes();
     println!("Current resident RSS: {:.2} MB", rss as f64 / (1024.0 * 1024.0));
 }
+
+#[test]
+fn test_tier6_strict_size_and_performance_bounds() {
+    let temp_dir = std::env::temp_dir().join(format!("egtb_test_t6_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).expect("Failed to create test dir");
+
+    // Copy prerequisites if available in egtb/ directory to avoid redundant re-solving
+    let manifest_egtb = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("egtb");
+    let egtb_src = if manifest_egtb.join("egtb_tier7.bin").exists() {
+        manifest_egtb
+    } else {
+        std::path::PathBuf::from("egtb")
+    };
+    if egtb_src.join("egtb_tier7.bin").exists() {
+        let _ = std::fs::copy(egtb_src.join("egtb_tier7.bin"), temp_dir.join("egtb_tier7.bin"));
+    }
+    if egtb_src.join("egtb_tier8.bin").exists() {
+        let _ = std::fs::copy(egtb_src.join("egtb_tier8.bin"), temp_dir.join("egtb_tier8.bin"));
+    }
+
+    let solver = MacroFactoredSolver::new(&temp_dir, 4);
+
+    let t0 = Instant::now();
+    let res = solver.solve_tier_6(1);
+    assert!(res.is_ok(), "Tier 6 solving failed: {:?}", res.err());
+
+    let (entries, path) = res.unwrap();
+    let elapsed = t0.elapsed().as_secs_f64();
+
+    // 1. Strict Upper Bound Assertions:
+    assert!(
+        entries <= TIER_6_MAX_ENTRIES,
+        "Tier 6 entry count {} exceeds strict bound {}",
+        entries,
+        TIER_6_MAX_ENTRIES
+    );
+
+    let file_bytes = std::fs::metadata(&path).unwrap().len();
+    assert!(
+        file_bytes <= TIER_6_MAX_FILE_BYTES,
+        "Tier 6 file size {} MB exceeds strict limit {} MB",
+        file_bytes as f64 / (1024.0 * 1024.0),
+        TIER_6_MAX_FILE_BYTES / (1024 * 1024)
+    );
+
+    println!(
+        "✅ Verified Tier 6 Strict Bounds: {} entries, {:.2} MB in {:.2}s",
+        entries,
+        file_bytes as f64 / (1024.0 * 1024.0),
+        elapsed
+    );
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
+fn test_macro_factored_prober_tier6_integration() {
+    use uttt::egtb::macro_factored::MacroFactoredProber;
+    use uttt::uttt_trait_solving::UltimateTicTacToeBoard;
+
+    let egtb_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("egtb");
+
+    if !egtb_path.join("egtb_tier6.bin").exists() {
+        eprintln!("egtb_tier6.bin not found, skipping integration test");
+        return;
+    }
+
+    let prober = MacroFactoredProber::with_dir(&egtb_path);
+    assert!(prober.tier8_count > 0, "Tier 8 must be loaded");
+    assert!(prober.tier7_count > 0, "Tier 7 must be loaded");
+    assert!(prober.tier6_count > 0, "Tier 6 must be loaded");
+
+    println!(
+        "Loaded Prober: Tier 8 = {} entries, Tier 7 = {} entries, Tier 6 = {} entries",
+        prober.tier8_count, prober.tier7_count, prober.tier6_count
+    );
+
+    // Construct a Tier 6 board: 6 subboards resolved, 3 open (0, 1, 2)
+    let mut board = UltimateTicTacToeBoard::default();
+    // Subboards 3, 4, 5, 6, 7, 8 full/tied
+    for s in 3..9 {
+        board.xbb[s] = 0b000_111_000;
+        board.obb[s] = 0b111_000_111;
+    }
+    // Subboard 0, 1, 2 open with some moves
+    board.xbb[0] = 0b000_000_001;
+    board.obb[0] = 0b000_000_010;
+    board.last_super_index = 0;
+    board.x_to_move = true;
+
+    assert_eq!(board.get_resolved_count(), 6, "Must be Tier 6 board (6 resolved)");
+
+    let t0 = Instant::now();
+    let num_probes = 50_000;
+    for _ in 0..num_probes {
+        let _ = prober.probe_tier_6(&board);
+    }
+    let elapsed = t0.elapsed();
+    let ns_per_probe = elapsed.as_nanos() as f64 / num_probes as f64;
+    println!("Tier 6 probing latency: {:.2} ns / probe", ns_per_probe);
+
+    assert!(
+        ns_per_probe < 1000.0,
+        "Tier 6 probing latency too high: {:.2} ns (budget 1000 ns)",
+        ns_per_probe
+    );
+}
+

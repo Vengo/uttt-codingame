@@ -8,6 +8,7 @@ Functions:
 - Generates optional Rust code embedding
 """
 
+import copy
 import os
 import sys
 import struct
@@ -73,9 +74,9 @@ def export_model_int8(
     output_bin_path: str = "ml/model_int8.bin",
     calibration_samples: list = None,
 ):
+    model = copy.deepcopy(model).to("cpu")
     model.eval()
     device = "cpu"
-    model = model.to(device)
 
     # Gather calibration inputs
     if calibration_samples is None or len(calibration_samples) == 0:

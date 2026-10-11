@@ -306,6 +306,7 @@ def run_champion_challenger(
         }
         write_status(status_file, frontend_status, status_data)
 
+        champion = champion.to(device)
         champion.eval()
         t_gen_start = time.time()
         total_evals_in_gen = 0
@@ -436,7 +437,8 @@ def run_champion_challenger(
             meta["generation"] += 1
             meta["total_promotions"] += 1
             meta["champion_elo"] = challenger_elo
-            champion = copy.deepcopy(challenger)
+            champion = copy.deepcopy(challenger).to(device)
+            champion.eval()
             torch.save({
                 "model_state_dict": champion.state_dict(),
                 "generation": meta["generation"],
@@ -452,6 +454,8 @@ def run_champion_challenger(
                 for i in range(min(100, len(calib_x)))
             ]
             export_model_int8(champion, output_bin_path=rust_bin, calibration_samples=calib_samples)
+            champion = champion.to(device)
+            champion.eval()
             print(f"🏆 PROMOTION! Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
             print(f"  Synchronized INT8 weights to {rust_bin}")
         else:

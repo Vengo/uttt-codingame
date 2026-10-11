@@ -111,29 +111,45 @@ class ContiguousStratifiedReplayBuffer:
 
         is_deep_or_draw = (game_length >= 38) or (abs(val_f32) < 0.05) or (tier in ("deep_draw", "deep_mcts"))
 
-        # Route to appropriate tier, falling back to any tier with available capacity
+        # Route to appropriate tier, falling back to any tier with available capacity before ring evicting
         if tier == "grandmaster" and self.gm_capacity > 0:
             slot = self.gm_start + self.gm_ptr
             self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
             self.gm_count = min(self.gm_count + 1, self.gm_capacity)
-        elif is_deep_or_draw and self.deep_draw_capacity > 0:
-            slot = self.deep_draw_start + self.deep_draw_ptr
-            self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
-            self.deep_draw_count = min(self.deep_draw_count + 1, self.deep_draw_capacity)
-        elif self.self_play_capacity > 0:
-            slot = self.self_play_start + self.self_play_ptr
-            self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
-            self.self_play_count = min(self.self_play_count + 1, self.self_play_capacity)
-        elif self.deep_draw_capacity > 0:
-            slot = self.deep_draw_start + self.deep_draw_ptr
-            self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
-            self.deep_draw_count = min(self.deep_draw_count + 1, self.deep_draw_capacity)
-        elif self.gm_capacity > 0:
-            slot = self.gm_start + self.gm_ptr
-            self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
-            self.gm_count = min(self.gm_count + 1, self.gm_capacity)
+        elif is_deep_or_draw:
+            if self.deep_draw_count < self.deep_draw_capacity:
+                slot = self.deep_draw_start + self.deep_draw_ptr
+                self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
+                self.deep_draw_count += 1
+            elif self.self_play_count < self.self_play_capacity:
+                slot = self.self_play_start + self.self_play_ptr
+                self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
+                self.self_play_count += 1
+            elif self.gm_count < self.gm_capacity:
+                slot = self.gm_start + self.gm_ptr
+                self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
+                self.gm_count += 1
+            else:
+                # All tiers full: ring evict within deep_draw tier
+                slot = self.deep_draw_start + self.deep_draw_ptr
+                self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
         else:
-            raise RuntimeError("ReplayBuffer has zero capacity across all tiers!")
+            if self.self_play_count < self.self_play_capacity:
+                slot = self.self_play_start + self.self_play_ptr
+                self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
+                self.self_play_count += 1
+            elif self.deep_draw_count < self.deep_draw_capacity:
+                slot = self.deep_draw_start + self.deep_draw_ptr
+                self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
+                self.deep_draw_count += 1
+            elif self.gm_count < self.gm_capacity:
+                slot = self.gm_start + self.gm_ptr
+                self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
+                self.gm_count += 1
+            else:
+                # All tiers full: ring evict within self_play tier
+                slot = self.self_play_start + self.self_play_ptr
+                self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
 
         self.observations[slot] = obs_u8
         self.legal_masks[slot] = mask_u8

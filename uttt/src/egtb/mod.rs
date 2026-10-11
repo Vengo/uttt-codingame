@@ -13,6 +13,7 @@ use crate::uttt_trait_solving::{UltimateTicTacToeBoard, ZobristConstants};
 
 pub mod retrograde;
 pub mod macro_factored;
+pub mod tier6;
 
 const EGTB_MAGIC: &[u8; 8] = b"UTTTEG01";
 pub const DEFAULT_EGTB_DIR_ZFS: &str = "/my-zraid/uttt/egtb";
@@ -52,6 +53,7 @@ pub struct EgtbDatabase {
     pub tier_counts: [usize; 10],
     pub tier_paths: [PathBuf; 10],
     pub zobrist_constants: ZobristConstants,
+    pub macro_prober: Option<macro_factored::MacroFactoredProber>,
 }
 
 impl Default for EgtbDatabase {
@@ -84,6 +86,7 @@ impl EgtbDatabase {
             tier_counts: [0; 10],
             tier_paths,
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
+            macro_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -117,6 +120,7 @@ impl EgtbDatabase {
             tier_counts: [0; 10],
             tier_paths: tiers,
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
+            macro_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -139,6 +143,7 @@ impl EgtbDatabase {
             tier_counts: [0; 10],
             tier_paths: tiers,
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
+            macro_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -234,8 +239,19 @@ impl EgtbDatabase {
             }
         }
 
-        self.entry_count = total_count;
-        Ok(total_count)
+        // 3. Load ultra-compact macro-factored prober (Tier 8, 7, 6)
+        let t8_path = self.find_tier_path(8).unwrap_or_else(|| self.tier_path(8));
+        let t7_path = self.find_tier_path(7).unwrap_or_else(|| self.tier_path(7));
+        let mut mp = macro_factored::MacroFactoredProber::new(&t8_path, &t7_path);
+        let t6_path = self.find_tier_path(6).unwrap_or_else(|| self.tier_path(6));
+        if t6_path.exists() {
+            mp.load_tier_6(&t6_path);
+        }
+        let macro_count = mp.tier8_count + mp.tier7_count + mp.tier6_count;
+        self.macro_prober = Some(mp);
+
+        self.entry_count = total_count + macro_count;
+        Ok(self.entry_count)
     }
 
     /// Counts how many subboards are won or drawn
@@ -259,6 +275,14 @@ impl EgtbDatabase {
         board: &UltimateTicTacToeBoard,
         zobrist_constants: &ZobristConstants,
     ) -> Option<GameResult> {
+        // 1. Probe the high-speed macro-factored tablebase (< 30 ns, zero allocation)
+        // Automatically evaluates Tier 9, Tier 8, Tier 7, Tier 6, and macro wins
+        if let Some(ref mp) = self.macro_prober {
+            if let Some(res) = mp.probe_game_result(board) {
+                return Some(res);
+            }
+        }
+
         if self.entry_count == 0 {
             return None;
         }
@@ -268,7 +292,7 @@ impl EgtbDatabase {
         let (canonical_board, _) = SymmetryEngine::canonical_form(&canon, zobrist_constants);
         let canonical_hash = canonical_board.full_hash();
 
-        // 1. Probe the specific tier table directly by resolved subboard count k
+        // 2. Probe the specific tier table directly by resolved subboard count k (legacy fallback)
         if k < self.tier_mmaps.len() {
             if let Some(ref mmap) = self.tier_mmaps[k] {
                 let count = self.tier_counts[k];
@@ -280,7 +304,7 @@ impl EgtbDatabase {
             }
         }
 
-        // 2. Fallback to monolithic tablebase if tier table is not yet partitioned or missed
+        // 3. Fallback to monolithic tablebase if tier table is not yet partitioned or missed
         if let Some(ref mmap) = self.monolithic_mmap {
             let count = self.monolithic_count;
             if count > 0 && mmap.len() >= 16 + count * 10 {

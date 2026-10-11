@@ -732,5 +732,41 @@ fn test_mcts_solver_handoff_root_and_intree() {
     );
 }
 
+#[test]
+fn test_tier_7_layered_retrograde_solver() {
+    let temp_dir = std::env::temp_dir().join(format!("test_tier7_{}", rand::random::<u64>()));
+    let solver = uttt::egtb::retrograde::RetrogradeSolver::new(&temp_dir, 4);
+    let (count, path) = solver.solve_tier_7(2_000).expect("Tier 7 solver failed");
+    assert!(count > 0, "Tier 7 must produce canonical records");
+    assert!(path.exists(), "egtb_tier7.bin must be written");
+
+    // Probe the generated tier 7 tablebase
+    let db = uttt::egtb::EgtbDatabase::with_dir(&temp_dir);
+    assert_eq!(db.tier_counts[7], count);
+}
+
+#[test]
+fn test_tier_6_streaming_chunk_architecture() {
+    let temp_dir = std::env::temp_dir().join(format!("test_tier6_{}", rand::random::<u64>()));
+    let solver = uttt::egtb::retrograde::RetrogradeSolver::new(&temp_dir, 4);
+
+    // Solve chunk 0 of 8
+    let (count0, path0) = solver.solve_tier_6_chunk(0, 8, 1_000).expect("Chunk 0 failed");
+    assert!(count0 > 0);
+    assert!(path0.exists());
+
+    // Solve chunk 1 of 8
+    let (count1, path1) = solver.solve_tier_6_chunk(1, 8, 1_000).expect("Chunk 1 failed");
+    assert!(count1 > 0);
+    assert!(path1.exists());
+
+    // Merge chunks
+    let chunks_dir = temp_dir.join("chunks");
+    let out_file = temp_dir.join("egtb_tier6.bin");
+    let merged_count = solver.merge_tier_6_chunks(&chunks_dir, &out_file).expect("Merge failed");
+    assert!(merged_count >= count0);
+    assert!(out_file.exists());
+}
+
 
 

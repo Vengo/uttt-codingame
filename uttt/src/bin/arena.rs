@@ -37,6 +37,7 @@ fn print_bot_descriptions() {
     println!(" 10. book_umcts_v2  - UMCTS-V2 with instant D4 Opening Book lookup (<1 us) and EGTB probing.");
     println!(" 11. book_alphabeta - AlphaBeta with instant D4 Opening Book lookup and EGTB probing.");
     println!(" 12. alphazero      - Pure Rust INT8 dual-headed ResNet inference engine (Policy + Value).");
+    println!(" 13. policy_alphabeta - Hybrid AlphaBeta guided by INT8 neural policy prior with macro-routing.");
     println!();
 }
 

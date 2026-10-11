@@ -9,13 +9,15 @@ fn print_usage() {
     println!("  UTTT Scalable Exhaustive Tablebase Solver (solve_egtb)");
     println!("============================================================");
     println!("Usage:");
-    println!("  solve_egtb --tier <8|7|all> [options]");
+    println!("  solve_egtb --tier <8|7|6|merge6|all> [options]");
     println!();
     println!("Options:");
-    println!("  --tier <N>            Endgame tier to solve: 8, 7, or 'all'");
+    println!("  --tier <N>            Endgame tier to solve: 8, 7, 6, merge6, or 'all'");
     println!("  --out-dir <path>       Output directory for generated .bin tablebases (default: 'egtb')");
     println!("  --threads <N>          Number of worker threads (default: all available cores)");
-    println!("  --max-positions <N>    Maximum position budget for Tier 7 (default: 500,000)");
+    println!("  --max-positions <N>    Maximum position budget for Tier 7/6 (default: 500,000)");
+    println!("  --chunk <idx>          Chunk index for Tier 6 streaming (default: 0)");
+    println!("  --chunks <total>       Total chunks for Tier 6 streaming (default: 8)");
     println!("  --help                 Show this help message");
     println!("============================================================");
 }
@@ -31,6 +33,8 @@ fn main() {
     let mut out_dir = PathBuf::from("egtb");
     let mut threads = 0usize;
     let mut max_positions = 500_000usize;
+    let mut chunk_idx = 0usize;
+    let mut total_chunks = 8usize;
 
     let mut i = 1;
     while i < args.len() {
@@ -59,6 +63,18 @@ fn main() {
                     i += 1;
                 }
             }
+            "--chunk" => {
+                if i + 1 < args.len() {
+                    chunk_idx = args[i + 1].parse().unwrap_or(0);
+                    i += 1;
+                }
+            }
+            "--chunks" => {
+                if i + 1 < args.len() {
+                    total_chunks = args[i + 1].parse().unwrap_or(8);
+                    i += 1;
+                }
+            }
             _ => {}
         }
         i += 1;
@@ -84,17 +100,38 @@ fn main() {
                 Err(err) => eprintln!("❌ Tier 7 solver error: {}", err),
             }
         }
+        "6" => {
+            match solver.solve_tier_6_chunk(chunk_idx, total_chunks, max_positions) {
+                Ok((count, path)) => {
+                    println!("\n✅ Successfully solved Tier 6 Chunk {}/{}: {} canonical entries in {:?}", chunk_idx + 1, total_chunks, count, path);
+                }
+                Err(err) => eprintln!("❌ Tier 6 solver error: {}", err),
+            }
+        }
+        "merge6" | "merge-tier6" => {
+            let chunks_dir = out_dir.join("chunks");
+            let out_file = out_dir.join("egtb_tier6.bin");
+            match solver.merge_tier_6_chunks(&chunks_dir, &out_file) {
+                Ok(count) => {
+                    println!("\n✅ Successfully merged Tier 6 chunks: {} canonical entries in {:?}", count, out_file);
+                }
+                Err(err) => eprintln!("❌ Tier 6 merge error: {}", err),
+            }
+        }
         "all" => {
-            println!("🚀 Executing Full Systematic Solving: Tier 8 then Tier 7...");
+            println!("🚀 Executing Full Systematic Solving: Tier 8, Tier 7, and Tier 6 Chunk 0...");
             if let Ok((count8, path8)) = solver.solve_tier_8() {
                 println!("✅ Tier 8: {} entries in {:?}", count8, path8);
             }
             if let Ok((count7, path7)) = solver.solve_tier_7(max_positions) {
                 println!("✅ Tier 7: {} entries in {:?}", count7, path7);
             }
+            if let Ok((count6, path6)) = solver.solve_tier_6_chunk(0, total_chunks, max_positions) {
+                println!("✅ Tier 6 Chunk 0: {} entries in {:?}", count6, path6);
+            }
         }
         other => {
-            eprintln!("Unknown tier '{}'. Supported: 8, 7, all", other);
+            eprintln!("Unknown tier '{}'. Supported: 8, 7, 6, merge6, all", other);
         }
     }
 

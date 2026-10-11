@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 use uttt::bots::create_bot;
-use uttt::game_solving::{AlphaBetaCompatible, GameMove};
+use uttt::game_solving::{AlphaBetaCompatible, GameMove, GameResult};
 use uttt::nn::{extract_features, InferenceWorkspace, ModelInt8};
 use uttt::uttt_trait_solving::UltimateTicTacToeBoard;
 
@@ -182,4 +182,31 @@ fn test_policy_alphabeta_bot_creation_and_search() {
         chosen.move_index
     );
 }
+
+#[test]
+fn test_debug_game_policy_vs_alphabeta() {
+    let mut bot1 = create_bot("policy_alphabeta").unwrap();
+    let mut bot2 = create_bot("alphabeta").unwrap();
+    let mut board = UltimateTicTacToeBoard::default();
+    let z_consts = UltimateTicTacToeBoard::get_zobrist_constants();
+
+    for ply in 0..40 {
+        let is_p1 = board.x_to_move;
+        let m = if is_p1 {
+            bot1.choose_move(&board, &[], &z_consts, Duration::from_millis(50))
+        } else {
+            bot2.choose_move(&board, &[], &z_consts, Duration::from_millis(50))
+        };
+        let legal = board.get_legal_moves_fast();
+        assert!(legal.iter().any(|&lm| lm.move_index == m.move_index), "Illegal move by {}", if is_p1 { "bot1" } else { "bot2" });
+        board.make_move(m, &z_consts);
+        let win = board.get_win_state();
+        println!("Ply {:2}: {} played move {} (sb {}, sq {}) -> win_state: {:?}", ply, if is_p1 { "PolicyAlphaBeta (X)" } else { "AlphaBeta (O)" }, m.move_index, m.move_index / 9, m.move_index % 9, win);
+        if win != GameResult::Unresolved {
+            println!("🏆 Game finished at ply {} with result: {:?}", ply, win);
+            break;
+        }
+    }
+}
+
 

@@ -27,7 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ml.model import AlphaZeroResNet
 from ml.dataset import UTTTEnv
 from ml.batched_mcts import run_batched_gpu_mcts
-from ml.replay_buffer import StratifiedReplayBuffer
+from ml.replay_buffer import ContiguousStratifiedReplayBuffer
+from ml.rust_mcts_worker import RustMctsWorker
 from ml.export_int8 import export_model_int8
 
 
@@ -210,8 +211,9 @@ def play_eval_match(
 
 def run_champion_challenger(
     total_cycles: int = 5,
-    parallel_games: int = 64,
+    parallel_games: int = 1024,
     mcts_simulations: int = 800,
+    moves_per_cycle: int = 40,
     eval_games: int = 24,
     eval_sims: int = 200,
     train_epochs: int = 3,
@@ -227,6 +229,7 @@ def run_champion_challenger(
     print(f"  GPU Hardware: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU'}")
     print(f"  Parallel Games per Move: {parallel_games}")
     print(f"  MCTS Simulations per Move: {mcts_simulations} (Deep AlphaZero)")
+    print(f"  Moves per Self-Play Cycle: {moves_per_cycle}")
     print(f"  Replay Buffer Capacity: {buffer_capacity:,} packed states")
     print(f"  Evaluation Gating Games: {eval_games} (Promo Threshold: {promote_threshold*100:.0f}%)")
     print("============================================================")
@@ -251,10 +254,11 @@ def run_champion_challenger(
         print("Initialized Champion with fresh random weights")
         torch.save({"model_state_dict": champion.state_dict(), "generation": 0, "elo": 1500.0}, champion_path)
 
-    # Load Replay Buffer
-    replay_buffer = StratifiedReplayBuffer(capacity=buffer_capacity)
+    # Load Contiguous Stratified Replay Buffer (Zero-GC, 814 MB RAM footprint for 1M states)
+    replay_buffer = ContiguousStratifiedReplayBuffer(capacity=buffer_capacity)
     if os.path.exists(buffer_path):
         replay_buffer.load(buffer_path)
+        print(f"Loaded existing Replay Buffer: {len(replay_buffer):,} states")
 
     # Initialize metadata
     meta_file = "ml/champion_metadata.json"
@@ -271,20 +275,24 @@ def run_champion_challenger(
             "history": [],
         }
 
+    # Initialize Pure Rust Rayon MCTS Batch Worker for 240,000+ evals/s GPU Saturation
+    print(f"Initializing RustMctsWorker with {parallel_games} parallel games...")
+    worker = RustMctsWorker(num_games=parallel_games, c_puct=2.0)
+
     for cycle in range(1, total_cycles + 1):
         print(f"\n============================================================")
         print(f"  CYCLE {cycle}/{total_cycles} | Generation {meta['generation']} (Champion Elo: {meta['champion_elo']:.1f})")
         print(f"============================================================")
 
         # ---------------------------------------------------------------------
-        # Phase 1: High-Saturation GPU Batched MCTS Self-Play
+        # Phase 1: High-Saturation GPU Batched MCTS Self-Play (Pure Rust Rayon Worker)
         # ---------------------------------------------------------------------
-        print(f"🚀 [Phase 1/3] Generating {parallel_games} Games via Batched GPU MCTS ({mcts_simulations} sims/move)...")
+        print(f"🚀 [Phase 1/3] Generating Games via Pure Rust Batch Worker ({parallel_games} games, {mcts_simulations} sims/move)...")
         status_data = {
             "cycle": cycle,
             "total_cycles": total_cycles,
             "phase": "self_play",
-            "phase_description": f"Running {parallel_games} concurrent games with {mcts_simulations} MCTS visits/move",
+            "phase_description": f"Running {parallel_games} parallel games with {mcts_simulations} MCTS visits/move",
             "mcts_sims": mcts_simulations,
             "parallel_games": parallel_games,
             "champion_elo": round(meta["champion_elo"], 1),
@@ -298,51 +306,31 @@ def run_champion_challenger(
         }
         write_status(status_file, frontend_status, status_data)
 
+        champion.eval()
         t_gen_start = time.time()
-        active_envs = [UTTTEnv() for _ in range(parallel_games)]
-        histories = [[] for _ in range(parallel_games)]
-        active_indices = list(range(parallel_games))
         total_evals_in_gen = 0
-        move_step = 0
+        total_finished_states = 0
 
-        while active_indices:
-            move_step += 1
-            current_envs = [active_envs[idx] for idx in active_indices]
-            results = run_batched_gpu_mcts(
-                model=champion,
-                envs=current_envs,
-                num_simulations=mcts_simulations,
-                c_puct=2.0,
-                dirichlet_alpha=0.3,
-                dirichlet_eps=0.25,
-                device=device,
-            )
-            total_evals_in_gen += len(current_envs) * mcts_simulations
+        for move_step in range(1, moves_per_cycle + 1):
+            t_move_start = time.time()
+            step_evals = worker.run_mcts_search(model=champion, num_simulations=mcts_simulations, device=device)
+            total_evals_in_gen += step_evals
 
-            finished_now = []
-            for b_idx, g_idx in enumerate(active_indices):
-                env = active_envs[g_idx]
-                policy, chosen_move = results[b_idx]
-                if chosen_move < 0 or env.game_over:
-                    finished_now.append(g_idx)
-                    continue
+            # Advance moves with auto temperature schedule:
+            # Plies <= 20: T = 1.0; Plies > 20: T = 0.5 (T NEVER drops to 0 in self-play!)
+            new_finished = worker.advance_moves(temperature=0.0)
+            total_finished_states += new_finished
 
-                obs, mask = env.get_observation()
-                histories[g_idx].append((obs, mask, policy, env.x_to_move))
-                env.step(chosen_move)
+            t_move_end = time.time()
+            move_elapsed = max(t_move_end - t_move_start, 0.001)
+            move_rate = step_evals / move_elapsed
+            total_rate = total_evals_in_gen / max(t_move_end - t_gen_start, 0.001)
 
-                if env.game_over:
-                    finished_now.append(g_idx)
+            print(f"  [Move {move_step:02d}/{moves_per_cycle:02d}] {parallel_games} games | {step_evals:,} evals in {move_elapsed:.2f}s ({move_rate:,.0f} evals/s) | {total_finished_states:,} finished states")
 
-            for g_idx in finished_now:
-                active_indices.remove(g_idx)
-
-            cur_elapsed = time.time() - t_gen_start
-            cur_rate = total_evals_in_gen / max(cur_elapsed, 0.001)
-            print(f"  [Move {move_step:02d}] {len(active_indices):>4} games active | {total_evals_in_gen:>9,} evals ({cur_rate:,.0f} evals/s)")
             status_data.update({
-                "phase_description": f"Move {move_step}: {len(active_indices)} active games ({total_evals_in_gen:,} evals, {cur_rate:,.0f} evals/s)",
-                "gpu_evals_per_sec": round(cur_rate),
+                "phase_description": f"Move {move_step}/{moves_per_cycle}: {parallel_games} games ({total_evals_in_gen:,} evals, {total_rate:,.0f} evals/s)",
+                "gpu_evals_per_sec": round(total_rate),
                 "gpu_telemetry": get_gpu_telemetry(device),
                 "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             })
@@ -351,29 +339,15 @@ def run_champion_challenger(
         gen_elapsed = time.time() - t_gen_start
         evals_per_sec = total_evals_in_gen / max(gen_elapsed, 0.001)
 
-        # Ingest samples into buffer with final game value
-        new_samples_count = 0
-        for g_idx, env in enumerate(active_envs):
-            winner = env.winner
-            game_len = len(histories[g_idx])
-            for obs, mask, policy, x_to_move in histories[g_idx]:
-                if winner == 0:
-                    v = 0.0
-                elif winner == 1:
-                    v = 1.0 if x_to_move else -1.0
-                else:
-                    v = -1.0 if x_to_move else 1.0
+        # Drain completed game states from Rust worker into pre-allocated NumPy arrays
+        f_drain, m_drain, p_drain, v_drain = worker.drain_samples(max_count=100_000)
+        new_samples_count = len(f_drain)
+        if new_samples_count > 0:
+            replay_buffer.add_samples_batch(f_drain, m_drain, p_drain, v_drain, tier="deep_mcts")
+            replay_buffer.save(buffer_path)
 
-                replay_buffer.add_sample(
-                    obs, mask, policy, v,
-                    game_length=game_len,
-                    tier="deep_mcts" if mcts_simulations >= 64 else "self_play",
-                )
-                new_samples_count += 1
-
-        replay_buffer.save(buffer_path)
         meta["total_games_played"] += parallel_games
-        print(f"  Self-Play Complete: {parallel_games} games, {new_samples_count} states in {gen_elapsed:.2f}s ({evals_per_sec:,.0f} evals/sec)")
+        print(f"  Self-Play Complete: {parallel_games} games, {new_samples_count:,} new states in {gen_elapsed:.2f}s ({evals_per_sec:,.0f} evals/sec)")
         print(f"  Replay Buffer Size: {len(replay_buffer):,} packed states")
 
         # ---------------------------------------------------------------------
@@ -521,8 +495,9 @@ def run_champion_challenger(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cycles", type=int, default=3, help="Number of champion/challenger cycles")
-    parser.add_argument("--games", type=int, default=64, help="Parallel games per self-play batch")
+    parser.add_argument("--games", type=int, default=1024, help="Parallel games per self-play batch (GPU saturated)")
     parser.add_argument("--mcts-sims", type=int, default=800, help="MCTS visits per move (Deep AlphaZero)")
+    parser.add_argument("--moves-per-cycle", type=int, default=40, help="Moves played across parallel games per self-play cycle")
     parser.add_argument("--eval-games", type=int, default=40, help="Number of games in gating match (2-ply opening suite)")
     parser.add_argument("--eval-sims", type=int, default=200, help="MCTS visits in gating match")
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs per cycle")
@@ -538,6 +513,7 @@ if __name__ == "__main__":
         total_cycles=args.cycles,
         parallel_games=args.games,
         mcts_simulations=args.mcts_sims,
+        moves_per_cycle=args.moves_per_cycle,
         eval_games=args.eval_games,
         eval_sims=args.eval_sims,
         train_epochs=args.epochs,

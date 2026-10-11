@@ -25,6 +25,7 @@ rayon = "1.10"
 [lib]
 name = "uttt"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "cg"

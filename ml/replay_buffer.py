@@ -141,6 +141,25 @@ class ContiguousStratifiedReplayBuffer:
         self.values[slot, 0] = val_f32
         self.total_inserted += 1
 
+    def add_samples_batch(
+        self,
+        observations: np.ndarray,
+        legal_masks: np.ndarray,
+        policies: np.ndarray,
+        values: np.ndarray,
+        tier: str = "deep_mcts",
+    ):
+        """Adds a batch of samples into the contiguous buffer with ring eviction."""
+        n = len(observations)
+        for i in range(n):
+            self.add_sample(
+                observations[i],
+                legal_masks[i],
+                policies[i],
+                float(values[i]),
+                tier=tier,
+            )
+
     def sample_batch(
         self,
         batch_size: int,

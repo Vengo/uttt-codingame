@@ -11,4 +11,5 @@ pub mod profile;
 pub mod symmetry;
 pub mod ttt_trait_solving;
 pub mod uttt_trait_solving;
+pub mod mcts_worker;
 

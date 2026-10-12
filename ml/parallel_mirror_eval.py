@@ -372,6 +372,29 @@ def run_parallel_mirror_tournament(
     )
 
 
+from ml.transformer_model import UTTTTransformer
+
+
+def load_eval_model(path: str, device: str):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Model checkpoint not found: {path}")
+    ckpt = torch.load(path, map_location=device)
+    arch = ckpt.get("architecture", "AlphaZeroResNet") if isinstance(ckpt, dict) else "AlphaZeroResNet"
+    if arch == "UTTTTransformer":
+        model = UTTTTransformer(
+            d_model=ckpt.get("d_model", 128),
+            nhead=ckpt.get("nhead", 4),
+            num_layers=ckpt.get("num_layers", 4),
+            dim_feedforward=ckpt.get("dim_feedforward", 512),
+        ).to(device)
+    else:
+        model = AlphaZeroResNet().to(device)
+    state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -384,13 +407,10 @@ if __name__ == "__main__":
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Loading models onto {device}...")
-    chal = AlphaZeroResNet().to(device)
-    champ = AlphaZeroResNet().to(device)
-
-    if os.path.exists(args.chal_path):
-        chal.load_state_dict(torch.load(args.chal_path, map_location=device)["model_state_dict"])
-    if os.path.exists(args.champ_path):
-        champ.load_state_dict(torch.load(args.champ_path, map_location=device)["model_state_dict"])
+    chal = load_eval_model(args.chal_path, device)
+    champ = load_eval_model(args.champ_path, device)
+    print(f"  Challenger ({args.chal_path}): {chal.__class__.__name__}")
+    print(f"  Champion   ({args.champ_path}): {champ.__class__.__name__}")
 
     print(f"Mining {args.pairs} interesting positions...")
     t0 = time.time()

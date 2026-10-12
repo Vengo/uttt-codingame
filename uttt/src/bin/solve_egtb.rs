@@ -36,10 +36,14 @@ fn main() {
     let mut chunk_idx = 0usize;
     let mut total_chunks = 8usize;
     let mut chunk_specified = false;
+    let mut exhaustive = false;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--exhaustive" => {
+                exhaustive = true;
+            }
             "--tier" => {
                 if i + 1 < args.len() {
                     tier = args[i + 1].clone();
@@ -95,14 +99,24 @@ fn main() {
                 Err(err) => eprintln!("❌ Tier 8 solver error: {}", err),
             }
         }
-        "7" => {
-            let mf_solver = uttt::egtb::macro_factored::MacroFactoredSolver::new(&out_dir, threads);
-            let empty_limit = if max_positions > 0 && max_positions <= 10 { max_positions } else { 4 };
-            match mf_solver.solve_tier_7(empty_limit) {
-                Ok((count, path)) => {
-                    println!("\n✅ Successfully solved Macro-Factored Tier 7: {} canonical entries in {:?}", count, path);
+        "7" | "7-zfs" => {
+            if exhaustive || out_dir.to_string_lossy().contains("tier7") || out_dir.to_string_lossy().contains("zraid") {
+                let zfs_solver = uttt::egtb::tier7_zfs::Tier7ZfsSolver::new(&out_dir, threads);
+                match zfs_solver.solve_all() {
+                    Ok((count, bytes)) => {
+                        println!("\n✅ Successfully generated Exhaustive Tier 7 ZFS Tablebase: {} slices ({:.2} GB) in {:?}", count, (bytes as f64) / (1024.0 * 1024.0 * 1024.0), out_dir);
+                    }
+                    Err(err) => eprintln!("❌ Tier 7 ZFS solver error: {}", err),
                 }
-                Err(err) => eprintln!("❌ Tier 7 solver error: {}", err),
+            } else {
+                let mf_solver = uttt::egtb::macro_factored::MacroFactoredSolver::new(&out_dir, threads);
+                let empty_limit = if max_positions > 0 && max_positions <= 10 { max_positions } else { 4 };
+                match mf_solver.solve_tier_7(empty_limit) {
+                    Ok((count, path)) => {
+                        println!("\n✅ Successfully solved Macro-Factored Tier 7: {} canonical entries in {:?}", count, path);
+                    }
+                    Err(err) => eprintln!("❌ Tier 7 solver error: {}", err),
+                }
             }
         }
         "6" | "all6" => {

@@ -159,9 +159,7 @@ impl UltimateTicTacToeBoard {
     }
 
     pub fn get_move_ordering_array() -> Vec<Vec<GameMove>> {
-        eprintln!("making an engine");
         let engine = TicTacToeEngine::new();
-        eprintln!("engine made");
         engine.get_move_ordering_array()
     }
 

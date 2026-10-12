@@ -7,7 +7,7 @@ Throughput: Up to 325,000+ evals/s on RTX 5060 Ti GPU.
 import ctypes
 import os
 import sys
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
 import torch
 
@@ -84,6 +84,13 @@ class RustMctsWorker:
         self.lib.mcts_worker_advance_moves_tournament.argtypes = [ctypes.c_void_p, ctypes.c_float]
         self.lib.mcts_worker_advance_moves_tournament.restype = ctypes.c_size_t
 
+        self.lib.mcts_worker_advance_moves_tournament_recorded.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_float,
+            ctypes.c_void_p,
+        ]
+        self.lib.mcts_worker_advance_moves_tournament_recorded.restype = ctypes.c_size_t
+
         self.lib.mcts_worker_drain_samples.argtypes = [
             ctypes.c_void_p,
             ctypes.c_void_p,
@@ -105,6 +112,46 @@ class RustMctsWorker:
 
         self.lib.mcts_worker_get_active_indices.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
         self.lib.mcts_worker_get_active_indices.restype = ctypes.c_size_t
+
+        self.lib.mcts_worker_apply_moves_batch.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+        ]
+        self.lib.mcts_worker_apply_moves_batch.restype = None
+
+        self.lib.alphabeta_batch_choose_moves.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+        ]
+        self.lib.alphabeta_batch_choose_moves.restype = None
+
+        if hasattr(self.lib, "alphabeta_v1_batch_choose_moves"):
+            self.lib.alphabeta_v1_batch_choose_moves.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+                ctypes.c_uint64,
+                ctypes.c_void_p,
+            ]
+            self.lib.alphabeta_v1_batch_choose_moves.restype = None
+
+        if hasattr(self.lib, "umcts_v2_batch_choose_moves"):
+            self.lib.umcts_v2_batch_choose_moves.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+                ctypes.c_uint64,
+                ctypes.c_void_p,
+            ]
+            self.lib.umcts_v2_batch_choose_moves.restype = None
 
     def __del__(self):
         if hasattr(self, "worker") and self.worker:
@@ -216,6 +263,19 @@ class RustMctsWorker:
             self.worker, ctypes.c_float(temperature)
         )
 
+    def advance_moves_tournament_recorded(self, temperature: float = 0.0) -> Tuple[int, np.ndarray]:
+        """
+        Advances moves in tournament mode and returns (finished_count, chosen_moves).
+        `chosen_moves[g]` is the move chosen (0..80) or 255 if game g was finished or not advanced.
+        """
+        out_arr = (ctypes.c_uint8 * self.num_games)()
+        finished_count = self.lib.mcts_worker_advance_moves_tournament_recorded(
+            self.worker,
+            ctypes.c_float(temperature),
+            out_arr,
+        )
+        return finished_count, np.frombuffer(out_arr, dtype=np.uint8).copy()
+
     def step_simulation_dual(
         self,
         model_chal: AlphaZeroResNet,
@@ -253,4 +313,83 @@ class RustMctsWorker:
             self.lib.mcts_worker_finish_step(self.worker, self.logits_ptr, self.vals_ptr, ctypes.c_size_t(n_active))
 
         return n_active
+
+    def apply_moves_batch(self, game_indices: List[int], moves: List[int]):
+        """
+        Applies a batch of external moves directly to game slots in Rust.
+        game_indices: list of game slot indices (0..num_games-1)
+        moves: list of move indices (0..80)
+        """
+        assert len(game_indices) == len(moves)
+        if len(game_indices) == 0:
+            return
+        idx_arr = (ctypes.c_size_t * len(game_indices))(*game_indices)
+        mv_arr = (ctypes.c_uint8 * len(moves))(*moves)
+        self.lib.mcts_worker_apply_moves_batch(
+            self.worker,
+            idx_arr,
+            mv_arr,
+            ctypes.c_size_t(len(game_indices)),
+        )
+
+    def choose_alphabeta_moves(
+        self,
+        game_history_list: List[List[int]],
+        time_limit_ms: int = 10,
+        bot_version: str = "v2",
+    ) -> List[int]:
+        """
+        Batched AlphaBeta move choice using Rayon thread-local bot pool in libuttt.so.
+        game_history_list: list of move sequences for each game
+        time_limit_ms: per-move time limit in ms
+        bot_version: "v1" (classic 1713 Elo) or "v2" (transposition table / DF-PN)
+        Returns: list of chosen move indices (0..80)
+        """
+        num_games = len(game_history_list)
+        if num_games == 0:
+            return []
+
+        flat_moves = []
+        offsets = []
+        lengths = []
+        curr_offset = 0
+        for moves in game_history_list:
+            offsets.append(curr_offset)
+            lengths.append(len(moves))
+            flat_moves.extend(moves)
+            curr_offset += len(moves)
+
+        flat_arr = (ctypes.c_uint8 * len(flat_moves))(*flat_moves) if flat_moves else None
+        off_arr = (ctypes.c_size_t * num_games)(*offsets)
+        len_arr = (ctypes.c_size_t * num_games)(*lengths)
+        out_moves = (ctypes.c_uint8 * num_games)()
+
+        if bot_version == "umcts_v2" and hasattr(self.lib, "umcts_v2_batch_choose_moves"):
+            self.lib.umcts_v2_batch_choose_moves(
+                flat_arr,
+                off_arr,
+                len_arr,
+                ctypes.c_size_t(num_games),
+                ctypes.c_uint64(time_limit_ms),
+                out_moves,
+            )
+        elif bot_version == "v1" and hasattr(self.lib, "alphabeta_v1_batch_choose_moves"):
+            self.lib.alphabeta_v1_batch_choose_moves(
+                flat_arr,
+                off_arr,
+                len_arr,
+                ctypes.c_size_t(num_games),
+                ctypes.c_uint64(time_limit_ms),
+                out_moves,
+            )
+        else:
+            self.lib.alphabeta_batch_choose_moves(
+                flat_arr,
+                off_arr,
+                len_arr,
+                ctypes.c_size_t(num_games),
+                ctypes.c_uint64(time_limit_ms),
+                out_moves,
+            )
+        return list(out_moves)
 

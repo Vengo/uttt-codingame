@@ -25,6 +25,7 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml.model import AlphaZeroResNet
+from ml.transformer_model import UTTTTransformer
 from ml.dataset import UTTTEnv
 from ml.batched_mcts import run_batched_gpu_mcts
 from ml.replay_buffer import ContiguousStratifiedReplayBuffer
@@ -262,19 +263,23 @@ def run_champion_challenger(
 
     initial_ckpt = "ml/model_checkpoint.pt"
 
-    # Load or initialize Champion model
-    champion = AlphaZeroResNet(num_channels=64, num_res_blocks=4).to(device)
-    if os.path.exists(champion_path):
-        state = torch.load(champion_path, map_location=device)
-        champion.load_state_dict(state["model_state_dict"])
-        print(f"Loaded existing Champion model from {champion_path}")
-    elif os.path.exists(initial_ckpt):
-        state = torch.load(initial_ckpt, map_location=device)
-        champion.load_state_dict(state["model_state_dict"])
-        print(f"Initialized Champion from {initial_ckpt}")
-        torch.save({"model_state_dict": champion.state_dict(), "generation": 0, "elo": 1500.0}, champion_path)
+    # Load or initialize Champion model (Auto-detect Transformer vs ResNet)
+    target_path = champion_path if os.path.exists(champion_path) else (initial_ckpt if os.path.exists(initial_ckpt) else None)
+    if target_path:
+        state = torch.load(target_path, map_location=device, weights_only=False)
+        sd = state["model_state_dict"] if (isinstance(state, dict) and "model_state_dict" in state) else state
+        is_trans = any(k.startswith("transformer.") or k.startswith("sb_embed.") for k in sd.keys())
+        if is_trans:
+            champion = UTTTTransformer().to(device)
+            arch_name = "UTTTTransformer (Vision Transformer)"
+        else:
+            champion = AlphaZeroResNet(num_channels=64, num_res_blocks=4).to(device)
+            arch_name = "AlphaZeroResNet (Residual CNN)"
+        champion.load_state_dict(sd)
+        print(f"Loaded existing Champion model ({arch_name}) from {target_path}")
     else:
-        print("Initialized Champion with fresh random weights")
+        champion = UTTTTransformer().to(device)
+        print("Initialized Champion with fresh UTTTTransformer weights")
         torch.save({"model_state_dict": champion.state_dict(), "generation": 0, "elo": 1500.0}, champion_path)
 
     # Load Contiguous Stratified Replay Buffer (Zero-GC, 814 MB RAM footprint for 1M states)
@@ -380,10 +385,11 @@ def run_champion_challenger(
         # ---------------------------------------------------------------------
         # Phase 2: Train Challenger Model
         # ---------------------------------------------------------------------
-        print(f"\n🧠 [Phase 2/3] Training Challenger ResNet ({train_epochs} epochs)...")
+        arch_title = type(champion).__name__
+        print(f"\n🧠 [Phase 2/3] Training Challenger {arch_title} ({train_epochs} epochs, lr={lr:.1e})...")
         status_data.update({
             "phase": "training",
-            "phase_description": f"Training Challenger ResNet on {len(replay_buffer)} states (D4 augmented)",
+            "phase_description": f"Training Challenger {arch_title} on {len(replay_buffer)} states (D4 augmented)",
             "replay_buffer_size": len(replay_buffer),
             "gpu_evals_per_sec": round(evals_per_sec),
             "gpu_telemetry": get_gpu_telemetry(device),
@@ -394,8 +400,11 @@ def run_champion_challenger(
         challenger = copy.deepcopy(champion).to(device)
         challenger.train()
         optimizer = torch.optim.AdamW(challenger.parameters(), lr=lr, weight_decay=1e-4)
+        scaler = torch.amp.GradScaler("cuda" if device == "cuda" else "cpu")
 
-        steps_per_epoch = max(20, min(150, len(replay_buffer) // 128))
+        steps_per_epoch = max(100, min(400, len(replay_buffer) // 128))
+        total_train_steps = train_epochs * steps_per_epoch
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_train_steps, eta_min=lr * 0.1)
         last_loss = 0.0
 
         for ep in range(1, train_epochs + 1):
@@ -410,21 +419,27 @@ def run_champion_challenger(
                 v_b = torch.from_numpy(v_b).unsqueeze(1).to(device)
 
                 optimizer.zero_grad()
-                logits, value = challenger(x_b, m_b)
-                log_probs = F.log_softmax(logits, dim=-1)
-                p_loss = -torch.sum(p_b * log_probs) / x_b.size(0)
-                v_loss = F.mse_loss(value, v_b)
-                loss = p_loss + v_loss
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(challenger.parameters(), max_norm=2.0)
-                optimizer.step()
+                with torch.amp.autocast("cuda" if device == "cuda" else "cpu"):
+                    logits, value = challenger(x_b, m_b)
+                    log_probs = F.log_softmax(logits, dim=-1)
+                    p_loss = -torch.sum(p_b * log_probs) / x_b.size(0)
+                    v_loss = F.mse_loss(value, v_b)
+                    loss = p_loss + v_loss
+
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(challenger.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+                scheduler.step()
 
                 ep_loss += loss.item()
                 ep_p += p_loss.item()
                 ep_v += v_loss.item()
 
             last_loss = ep_loss / steps_per_epoch
-            print(f"  Epoch {ep}/{train_epochs} | Loss: {last_loss:.4f} (Policy: {ep_p/steps_per_epoch:.4f}, Value: {ep_v/steps_per_epoch:.4f})")
+            cur_lr = scheduler.get_last_lr()[0]
+            print(f"  Epoch {ep}/{train_epochs} | Loss: {last_loss:.4f} (Policy: {ep_p/steps_per_epoch:.4f}, Value: {ep_v/steps_per_epoch:.4f}) | LR: {cur_lr:.2e}")
 
         torch.save({"model_state_dict": challenger.state_dict()}, challenger_path)
 
@@ -494,18 +509,24 @@ def run_champion_challenger(
             if not test_mode:
                 shutil.copyfile(champion_path, initial_ckpt)
 
-                # Export INT8 model and synchronize to pure Rust engine
+                # Export INT8 model and synchronize to pure Rust engine (for ResNet)
                 rust_bin = "uttt/src/nn/model_int8.bin"
-                calib_x, calib_m, calib_p, calib_v = replay_buffer.sample_batch(batch_size=100)
-                calib_samples = [
-                    (calib_x[i], calib_m[i], calib_p[i], float(calib_v[i]))
-                    for i in range(min(100, len(calib_x)))
-                ]
-                export_model_int8(champion, output_bin_path=rust_bin, calibration_samples=calib_samples)
-                champion = champion.to(device)
-                champion.eval()
-                print(f"🏆 PROMOTION! Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
-                print(f"  Synchronized INT8 weights to {rust_bin}")
+                if isinstance(champion, AlphaZeroResNet):
+                    calib_x, calib_m, calib_p, calib_v = replay_buffer.sample_batch(batch_size=100)
+                    calib_samples = [
+                        (calib_x[i], calib_m[i], calib_p[i], float(calib_v[i]))
+                        for i in range(min(100, len(calib_x)))
+                    ]
+                    export_model_int8(champion, output_bin_path=rust_bin, calibration_samples=calib_samples)
+                    champion = champion.to(device)
+                    champion.eval()
+                    print(f"🏆 PROMOTION! Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
+                    print(f"  Synchronized INT8 weights to {rust_bin}")
+                else:
+                    champion = champion.to(device)
+                    champion.eval()
+                    print(f"🏆 PROMOTION! Transformer crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
+                    print(f"  Transformer active (runs FP16 AMP); baseline INT8 weights preserved at {rust_bin}")
             else:
                 print(f"🏆 [TEST MODE] Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
         else:
@@ -563,7 +584,7 @@ if __name__ == "__main__":
     parser.add_argument("--eval-games", type=int, default=None, help="Legacy alias for total evaluation games (eval_pairs = eval_games // 2)")
     parser.add_argument("--eval-sims", type=int, default=100, help="MCTS visits in gating match (default: 100)")
     parser.add_argument("--epochs", type=int, default=3, help="Training epochs per cycle")
-    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate (fine-tuning default 1e-4)")
     parser.add_argument("--threshold", type=float, default=0.55, help="Promotion threshold win rate")
     parser.add_argument("--buffer-capacity", type=int, default=1_000_000, help="Replay buffer capacity in packed states")
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")

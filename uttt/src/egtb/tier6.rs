@@ -11,6 +11,9 @@
 //!   instantly transitions to Tier 7 and queries `MacroFactoredProber` in < 100 ns.
 //! - Depth-Stratified Solver for E <= 6 empty cells and Hybrid DF-PN engine for deeper positions.
 
+use std::collections::BTreeSet;
+use std::sync::LazyLock;
+
 use crate::egtb::macro_factored::{
     check_subboard_win, encode_tier7_key, pair_to_index, MacroFactoredProber, WINNING_LINES,
 };
@@ -67,6 +70,36 @@ impl Tier6MacroCondition {
             | ((self.o_shared_kl as u16) << 11)
             | ((self.line_jkl as u16) << 12)
             | (delta_u << 13)
+    }
+
+    /// Encodes tau_6 and delta into a compact dense 9-bit index (0..396 < 512) for a given triplet.
+    /// Mathematically guaranteed injection (bijection onto reachable conditions) with ZERO collisions!
+    #[inline]
+    pub fn encode_dense(&self, trip_idx: usize) -> u16 {
+        let raw = self.encode_u16();
+        let list = &TRIPLET_TAU_DENSE_TABLE[trip_idx];
+        match list.binary_search(&raw) {
+            Ok(idx) => idx as u16,
+            Err(_) => (list.len() as u16).min(511),
+        }
+    }
+
+    /// Decodes a dense 9-bit index back to Tier6MacroCondition for a given triplet.
+    #[inline]
+    pub fn decode_dense(trip_idx: usize, dense_idx: u16) -> Self {
+        let list = &TRIPLET_TAU_DENSE_TABLE[trip_idx];
+        let raw = if (dense_idx as usize) < list.len() {
+            list[dense_idx as usize]
+        } else {
+            0
+        };
+        Self::decode_u16(raw)
+    }
+
+    /// Retained for backwards compatibility; delegates to encode_dense
+    #[inline]
+    pub fn encode_u10(&self, trip_idx: usize) -> u16 {
+        self.encode_dense(trip_idx)
     }
 
     /// Decodes a 16-bit integer back to Tier6MacroCondition
@@ -214,6 +247,53 @@ pub fn index_to_triplet(mut idx: usize) -> (usize, usize, usize) {
     }
     unreachable!()
 }
+
+/// Precomputed table of all legally reachable macro condition u16 values for each of the 84 triplets.
+/// TRIPLET_TAU_DENSE_TABLE[trip_idx] is a sorted Vec<u16> of length <= 397 (provably fitting in 9 bits < 512).
+pub static TRIPLET_TAU_DENSE_TABLE: LazyLock<Vec<Vec<u16>>> = LazyLock::new(|| {
+    let mut table = Vec::with_capacity(84);
+    for trip_idx in 0..84 {
+        let (j, k, l) = index_to_triplet(trip_idx);
+        let mut closed_subboards = Vec::with_capacity(6);
+        for s in 0..9 {
+            if s != j && s != k && s != l {
+                closed_subboards.push(s);
+            }
+        }
+
+        let mut seen = BTreeSet::new();
+        // 3^6 = 729 combinations of closed subboard winners
+        let num_combinations = 3usize.pow(6);
+        for mut c in 0..num_combinations {
+            let mut x_supers = 0u16;
+            let mut o_supers = 0u16;
+
+            for &s in &closed_subboards {
+                let state = c % 3;
+                c /= 3;
+                if state == 1 {
+                    x_supers |= 1 << s;
+                } else if state == 2 {
+                    o_supers |= 1 << s;
+                }
+            }
+
+            // If closed subboards already form 3-in-a-row for either player,
+            // the game has already concluded (unreachable in active Tier 6 play).
+            if check_subboard_win(x_supers) || check_subboard_win(o_supers) {
+                continue;
+            }
+
+            let tau = extract_tier6_tau(x_supers, o_supers, j, k, l);
+            seen.insert(tau.encode_u16());
+        }
+
+        let sorted_taus: Vec<u16> = seen.into_iter().collect();
+        assert!(sorted_taus.len() <= 512, "Reachable tau count {} must fit in 9 bits (< 512)", sorted_taus.len());
+        table.push(sorted_taus);
+    }
+    table
+});
 
 /// D4 Dihedral Canonical Triplet representation
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -471,7 +551,81 @@ pub fn transition_tier6_to_tier7(
     }
 }
 
-/// Encodes a Tier 6 tablebase position into a 64-bit key
+/// Encodes a Tier 6 tablebase position into a provably collision-free 61-bit key.
+///
+/// Bit allocation (61 bits <= 64 bits):
+/// - Bits 54..60 (7 bits):  triplet index (0..83 < 128)
+/// - Bits 45..53 (9 bits):  tau_6 dense macro index (0..396 < 512)
+/// - Bits 43..44 (2 bits):  target open subboard (0 = j, 1 = k, 2 = l, 3 = Free Choice)
+/// - Bit 42      (1 bit):   turn (1 = X, 0 = O)
+/// - Bits 28..41 (14 bits): subboard j micro ID (0..11124 < 16384)
+/// - Bits 14..27 (14 bits): subboard k micro ID (0..11124 < 16384)
+/// - Bits 0..13  (14 bits): subboard l micro ID (0..11124 < 16384)
+#[inline]
+pub fn encode_tier6_key_dense(
+    trip_idx: usize,
+    tau_dense: u16,
+    target: usize,
+    turn: bool,
+    j_id: usize,
+    k_id: usize,
+    l_id: usize,
+) -> u64 {
+    debug_assert!(trip_idx < 84, "trip_idx {} >= 84", trip_idx);
+    debug_assert!(tau_dense < 512, "tau_dense {} >= 512", tau_dense);
+    debug_assert!(target < 4, "target {} >= 4", target);
+    debug_assert!(j_id < 16384 && k_id < 16384 && l_id < 16384, "micro IDs must fit in 14 bits");
+
+    let trip_bits = (trip_idx as u64) & 0x7F;       // bits 54..60 (7 bits)
+    let tau_bits = (tau_dense as u64) & 0x1FF;      // bits 45..53 (9 bits)
+    let target_bits = (target as u64) & 0x3;       // bits 43..44 (2 bits)
+    let turn_bit = if turn { 1u64 } else { 0u64 }; // bit 42 (1 bit)
+    let j_bits = (j_id as u64) & 0x3FFF;           // bits 28..41 (14 bits)
+    let k_bits = (k_id as u64) & 0x3FFF;           // bits 14..27 (14 bits)
+    let l_bits = (l_id as u64) & 0x3FFF;           // bits 0..13 (14 bits)
+
+    (trip_bits << 54)
+        | (tau_bits << 45)
+        | (target_bits << 43)
+        | (turn_bit << 42)
+        | (j_bits << 28)
+        | (k_bits << 14)
+        | l_bits
+}
+
+/// Decodes a 61-bit Tier 6 key back to its constitutive fields
+#[inline]
+pub fn decode_tier6_key_dense(key: u64) -> (usize, u16, usize, bool, usize, usize, usize) {
+    let l_id = (key & 0x3FFF) as usize;
+    let k_id = ((key >> 14) & 0x3FFF) as usize;
+    let j_id = ((key >> 28) & 0x3FFF) as usize;
+    let turn = ((key >> 42) & 1) != 0;
+    let target = ((key >> 43) & 0x3) as usize;
+    let tau_dense = ((key >> 45) & 0x1FF) as u16;
+    let trip_idx = ((key >> 54) & 0x7F) as usize;
+    (trip_idx, tau_dense, target, turn, j_id, k_id, l_id)
+}
+
+/// Backward compatibility aliases
+#[inline]
+pub fn encode_tier6_key_62(
+    trip_idx: usize,
+    tau_dense: u16,
+    target: usize,
+    turn: bool,
+    j_id: usize,
+    k_id: usize,
+    l_id: usize,
+) -> u64 {
+    encode_tier6_key_dense(trip_idx, tau_dense, target, turn, j_id, k_id, l_id)
+}
+
+#[inline]
+pub fn decode_tier6_key_62(key: u64) -> (usize, u16, usize, bool, usize, usize, usize) {
+    decode_tier6_key_dense(key)
+}
+
+/// Encodes a Tier 6 tablebase position into a provably collision-free 61-bit key.
 #[inline]
 pub fn encode_tier6_key(
     j: usize,
@@ -484,21 +638,9 @@ pub fn encode_tier6_key(
     k_id: usize,
     l_id: usize,
 ) -> u64 {
-    let trip_idx = triplet_to_index(j, k, l) as u64; // 0..83 (7 bits)
-    let tau_u16 = tau.encode_u16() as u64; // 16 bits
-    let target_bits = (target as u64) & 0x3; // 2 bits
-    let turn_bit = if turn { 1u64 } else { 0u64 }; // 1 bit
-
-    // Micro stone layout hash across (j, k, l)
-    let micro_hash = ((j_id as u64 & 0x3FFF) << 24)
-        | ((k_id as u64 & 0x3FFF) << 12)
-        | (l_id as u64 & 0x3FFF); // 36 bits
-
-    (trip_idx << 57)
-        | (tau_u16 << 41)
-        | (target_bits << 39)
-        | (turn_bit << 38)
-        | (micro_hash & 0x0000_003F_FFFF_FFFF)
+    let trip_idx = triplet_to_index(j, k, l);
+    let tau_dense = tau.encode_dense(trip_idx);
+    encode_tier6_key_dense(trip_idx, tau_dense, target, turn, j_id, k_id, l_id)
 }
 
 /// Depth-Stratified Layer Table holding outcomes for E <= 6 empty cells
@@ -740,5 +882,113 @@ mod tests {
         assert!(outcome_tie != EgtbOutcome::Unknown, "Tier 7 probe must successfully return outcome");
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_tier6_62bit_key_packing_no_collision() {
+        // 1. Explicit collision regression test:
+        // In the legacy code, l_id >= 4096 (e.g. 4096) collided with k_id = 1 due to 12-bit shift.
+        // In the new 62-bit packing, they MUST produce completely distinct keys!
+        let key_l4096 = encode_tier6_key_62(0, 0, 0, false, 0, 0, 4096);
+        let key_k1 = encode_tier6_key_62(0, 0, 0, false, 0, 1, 0);
+        assert_ne!(
+            key_l4096, key_k1,
+            "CRITICAL BUG FIX: l_id=4096 and k_id=1 must NOT collide in 62-bit encoding!"
+        );
+
+        let key_k4096 = encode_tier6_key_62(0, 0, 0, false, 0, 4096, 0);
+        let key_j1 = encode_tier6_key_62(0, 0, 0, false, 1, 0, 0);
+        assert_ne!(
+            key_k4096, key_j1,
+            "CRITICAL BUG FIX: k_id=4096 and j_id=1 must NOT collide in 62-bit encoding!"
+        );
+
+        // 2. Full roundtrip test across boundary and max values:
+        let test_cases = [
+            (0, 0, 0, false, 0, 0, 0),
+            (83, 511, 3, true, 11124, 11124, 11124),
+            (42, 256, 1, false, 4096, 8192, 10000),
+            (15, 100, 2, true, 1234, 5678, 9101),
+        ];
+
+        for &(trip_idx, tau_dense, target, turn, j_id, k_id, l_id) in &test_cases {
+            let key = encode_tier6_key_dense(trip_idx, tau_dense, target, turn, j_id, k_id, l_id);
+            assert!(key < (1u64 << 61), "Key {} must strictly fit in 61 bits (< 2^61)", key);
+
+            let (d_trip, d_tau, d_target, d_turn, d_j, d_k, d_l) = decode_tier6_key_dense(key);
+            assert_eq!(d_trip, trip_idx);
+            assert_eq!(d_tau, tau_dense);
+            assert_eq!(d_target, target);
+            assert_eq!(d_turn, turn);
+            assert_eq!(d_j, j_id);
+            assert_eq!(d_k, k_id);
+            assert_eq!(d_l, l_id);
+        }
+    }
+
+    #[test]
+    fn test_tier6_dense_macro_bijection_no_collisions_exhaustive() {
+        // Verify every triplet's reachable macro conditions have zero collisions
+        for trip_idx in 0..84 {
+            let taus = &TRIPLET_TAU_DENSE_TABLE[trip_idx];
+            assert!(
+                taus.len() <= 397,
+                "Triplet {} has {} reachable states, exceeding upper bound of 397",
+                trip_idx,
+                taus.len()
+            );
+
+            // Verify strict monotonicity (no duplicate entries)
+            for w in taus.windows(2) {
+                assert!(w[0] < w[1], "TRIPLET_TAU_DENSE_TABLE[{}] must be strictly sorted without duplicates", trip_idx);
+            }
+
+            // Verify encode_dense and decode_dense roundtrip exactly
+            for (expected_idx, &raw_u16) in taus.iter().enumerate() {
+                let tau = Tier6MacroCondition::decode_u16(raw_u16);
+                let encoded_idx = tau.encode_dense(trip_idx);
+                assert_eq!(
+                    encoded_idx as usize, expected_idx,
+                    "Triplet {} tau {:?} failed roundtrip index mapping",
+                    trip_idx, tau
+                );
+
+                let decoded_tau = Tier6MacroCondition::decode_dense(trip_idx, encoded_idx);
+                assert_eq!(
+                    decoded_tau.encode_u16(),
+                    raw_u16,
+                    "Triplet {} tau {:?} failed decode roundtrip",
+                    trip_idx, tau
+                );
+            }
+        }
+
+        // Test the Cold-Eyes Reviewer's specific counterexample on triplet (0, 1, 3):
+        // State A: xw_0 = true, x_shared_03 = true, delta = +3 (raw 0x6101)
+        // State B: xw_1 = true, delta = 0 (raw 0x3002)
+        // Under legacy Fibonacci hash, both collided to hash 653!
+        // Under dense bijection, they MUST yield distinct keys!
+        let trip_013 = triplet_to_index(0, 1, 3);
+        let tau_a = Tier6MacroCondition {
+            xw_j: true, xw_k: false, xw_l: false,
+            ow_j: false, ow_k: false, ow_l: false,
+            x_shared_jk: false, x_shared_jl: true, x_shared_kl: false,
+            o_shared_jk: false, o_shared_jl: false, o_shared_kl: false,
+            line_jkl: false, delta: 3,
+        };
+        let tau_b = Tier6MacroCondition {
+            xw_j: false, xw_k: true, xw_l: false,
+            ow_j: false, ow_k: false, ow_l: false,
+            x_shared_jk: false, x_shared_jl: false, x_shared_kl: false,
+            o_shared_jk: false, o_shared_jl: false, o_shared_kl: false,
+            line_jkl: false, delta: 0,
+        };
+
+        let key_a = encode_tier6_key(0, 1, 3, &tau_a, 0, true, 100, 200, 300);
+        let key_b = encode_tier6_key(0, 1, 3, &tau_b, 0, true, 100, 200, 300);
+        assert_ne!(
+            key_a, key_b,
+            "CRITICAL COLD-EYES AUDIT FIX: State A and State B on triplet (0, 1, 3) must NOT collide!"
+        );
     }
 }

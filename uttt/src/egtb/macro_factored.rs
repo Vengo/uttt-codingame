@@ -837,11 +837,13 @@ impl MacroFactoredSolver {
 
         let total_solved = AtomicUsize::new(0);
         let records = Mutex::new(Vec::with_capacity(1_500_000));
-        let max_e = max_empty_cells.clamp(1, 4);
+        let is_exhaustive_zfs = max_empty_cells >= 9;
+        let max_e = if is_exhaustive_zfs { 9 } else { max_empty_cells.clamp(1, 4) };
+        let heap_budget = if is_exhaustive_zfs { 32 * 1024 * 1024 * 1024 } else { MAX_HEAP_BUDGET_BYTES };
 
         // Parallelize across the 36 subboard pairs
         pairs.into_par_iter().enumerate().for_each(|(pair_idx, (j, k))| {
-            MemoryBudgetGuard::check_delta(baseline_rss, MAX_HEAP_BUDGET_BYTES);
+            MemoryBudgetGuard::check_delta(baseline_rss, heap_budget);
             let mut local_records = Vec::with_capacity(60_000);
 
             // Allocate layer tables ONCE per pair (only for e_j + e_k <= max_e)
@@ -1247,7 +1249,9 @@ impl MacroFactoredSolver {
                                             let states_k = &micro.states_by_empty[e_k];
                                             let n_pairs = states_j.len() * states_k.len();
 
-                                            let step = if n_pairs > 40 {
+                                            let step = if is_exhaustive_zfs {
+                                                1
+                                            } else if n_pairs > 40 {
                                                 (n_pairs / 4).max(1)
                                             } else {
                                                 1
@@ -1298,24 +1302,28 @@ impl MacroFactoredSolver {
         final_records.par_sort_unstable_by_key(|r| r.hash);
         final_records.dedup_by_key(|r| r.hash);
 
-        // Assert strict bounds
-        if final_records.len() > TIER_7_MAX_ENTRIES {
-            return Err(format!(
-                "STRICT BOUND VIOLATION: Tier 7 entry count {} exceeds maximum {}",
-                final_records.len(),
-                TIER_7_MAX_ENTRIES
-            ));
+        // Assert strict bounds only for non-exhaustive mode
+        if !is_exhaustive_zfs {
+            if final_records.len() > TIER_7_MAX_ENTRIES {
+                return Err(format!(
+                    "STRICT BOUND VIOLATION: Tier 7 entry count {} exceeds maximum {}",
+                    final_records.len(),
+                    TIER_7_MAX_ENTRIES
+                ));
+            }
         }
 
         self.persist_records(&out_path, &final_records)?;
 
         let metadata = std::fs::metadata(&out_path).map_err(|e| e.to_string())?;
-        if metadata.len() > TIER_7_MAX_FILE_BYTES {
-            return Err(format!(
-                "STRICT BOUND VIOLATION: Tier 7 file size {} bytes exceeds maximum {} bytes",
-                metadata.len(),
-                TIER_7_MAX_FILE_BYTES
-            ));
+        if !is_exhaustive_zfs {
+            if metadata.len() > TIER_7_MAX_FILE_BYTES {
+                return Err(format!(
+                    "STRICT BOUND VIOLATION: Tier 7 file size {} bytes exceeds maximum {} bytes",
+                    metadata.len(),
+                    TIER_7_MAX_FILE_BYTES
+                ));
+            }
         }
 
         println!("✅ Tier 7 solved successfully: {} entries, {:.2} MB in {:.2}s -> {:?}",

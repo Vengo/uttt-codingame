@@ -245,8 +245,7 @@ impl MctsWorker {
                 let win = game.board.get_win_state();
                 let is_term = win != GameResult::Unresolved;
                 let term_val = match win {
-                    GameResult::P1Win => if game.board.x_to_move { -1.0 } else { 1.0 },
-                    GameResult::P2Win => if game.board.x_to_move { 1.0 } else { -1.0 },
+                    GameResult::P1Win | GameResult::P2Win => -1.0,
                     _ => 0.0,
                 };
                 game.nodes.push(MctsNode {
@@ -306,8 +305,7 @@ impl MctsWorker {
                     let win = curr_board.get_win_state();
                     let is_term = win != GameResult::Unresolved;
                     let term_val = match win {
-                        GameResult::P1Win => if curr_board.x_to_move { -1.0 } else { 1.0 },
-                        GameResult::P2Win => if curr_board.x_to_move { 1.0 } else { -1.0 },
+                        GameResult::P1Win | GameResult::P2Win => -1.0,
                         _ => 0.0,
                     };
 
@@ -674,10 +672,24 @@ impl MctsWorker {
     /// Advances moves for competitive tournament evaluation without resetting finished games.
     /// Games that finish retain their terminal board state and are not reset with new openings.
     pub fn advance_moves_tournament(&mut self, temperature: f32) -> usize {
+        let mut dummy = vec![255u8; self.num_games];
+        self.advance_moves_tournament_recorded(temperature, &mut dummy)
+    }
+
+    /// Advances moves in tournament mode and records chosen moves into out_moves buffer.
+    /// Games that are already finished or not advanced have out_moves[g] = 255.
+    pub fn advance_moves_tournament_recorded(
+        &mut self,
+        temperature: f32,
+        out_moves: &mut [u8],
+    ) -> usize {
         let z_consts = &self.zobrist_constants;
         let mut finished_count = 0;
 
-        for game in self.games.iter_mut() {
+        for (g, game) in self.games.iter_mut().enumerate() {
+            if g < out_moves.len() {
+                out_moves[g] = 255;
+            }
             let win_state = game.board.get_win_state();
             if win_state != GameResult::Unresolved || game.moves_played >= 81 {
                 finished_count += 1;
@@ -734,6 +746,10 @@ impl MctsWorker {
                 }
                 picked
             };
+
+            if g < out_moves.len() {
+                out_moves[g] = chosen_action;
+            }
 
             game.board.make_move(
                 GameMove {
@@ -987,3 +1003,229 @@ pub extern "C" fn mcts_worker_advance_moves_tournament(
         0
     }
 }
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_advance_moves_tournament_recorded(
+    worker: *mut MctsWorker,
+    temperature: f32,
+    out_chosen_moves: *mut u8,
+) -> usize {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        let moves_slice = unsafe { std::slice::from_raw_parts_mut(out_chosen_moves, w.num_games) };
+        w.advance_moves_tournament_recorded(temperature, moves_slice)
+    } else {
+        0
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn mcts_worker_apply_moves_batch(
+    worker: *mut MctsWorker,
+    game_indices: *const usize,
+    moves: *const u8,
+    num_moves: usize,
+) {
+    if let Some(w) = unsafe { worker.as_mut() } {
+        let indices = unsafe { std::slice::from_raw_parts(game_indices, num_moves) };
+        let mv_slice = unsafe { std::slice::from_raw_parts(moves, num_moves) };
+
+        for k in 0..num_moves {
+            let g = indices[k];
+            if g < w.num_games {
+                let m = mv_slice[k];
+                let game = &mut w.games[g];
+                game.board.make_move(
+                    GameMove { x_to_move: game.board.x_to_move, move_index: m },
+                    &w.zobrist_constants,
+                );
+                game.current_leaf_board = game.board.clone();
+                game.nodes.clear();
+                game.children.clear();
+                game.moves_played += 1;
+            }
+        }
+    }
+}
+
+static SHARED_ZOBRIST: std::sync::LazyLock<ZobristConstants> =
+    std::sync::LazyLock::new(|| UltimateTicTacToeBoard::get_zobrist_constants());
+static SHARED_LEGAL_LOOKUP: std::sync::LazyLock<Vec<Vec<GameMove>>> =
+    std::sync::LazyLock::new(|| UltimateTicTacToeBoard::get_move_ordering_array());
+
+thread_local! {
+    static THREAD_BOT_V2: std::cell::RefCell<crate::bots::AlphaBetaV2Bot> = std::cell::RefCell::new(crate::bots::AlphaBetaV2Bot::new());
+    static THREAD_BOT_V1: std::cell::RefCell<crate::bots::AlphaBetaBot> = std::cell::RefCell::new(crate::bots::AlphaBetaBot::new());
+    static THREAD_BOT_UMCTS_V2: std::cell::RefCell<crate::bots::UmctsV2Bot> = std::cell::RefCell::new(crate::bots::UmctsV2Bot::new());
+}
+
+#[no_mangle]
+pub extern "C" fn alphabeta_batch_choose_moves(
+    moves_flat: *const u8,
+    move_offsets: *const usize,
+    move_lengths: *const usize,
+    num_games: usize,
+    time_limit_ms: u64,
+    out_moves: *mut u8,
+) {
+    let offsets = unsafe { std::slice::from_raw_parts(move_offsets, num_games) };
+    let lengths = unsafe { std::slice::from_raw_parts(move_lengths, num_games) };
+    let duration = std::time::Duration::from_millis(time_limit_ms);
+
+    let moves_flat_addr = moves_flat as usize;
+    let out_moves_addr = out_moves as usize;
+
+    let zobrist = &*SHARED_ZOBRIST;
+    let legal_lookup = &*SHARED_LEGAL_LOOKUP;
+
+    (0..num_games).into_par_iter().for_each(|i| {
+        THREAD_BOT_V2.with(|bot_cell| {
+            let mut bot = bot_cell.borrow_mut();
+            let mf_ptr = moves_flat_addr as *const u8;
+            let out_ptr = out_moves_addr as *mut u8;
+            let slice = unsafe { std::slice::from_raw_parts(mf_ptr.add(offsets[i]), lengths[i]) };
+
+            let mut board = UltimateTicTacToeBoard::default();
+            for &m in slice {
+                board.make_move(GameMove { x_to_move: board.x_to_move, move_index: m }, zobrist);
+            }
+
+            use crate::bots::Bot;
+            let chosen_move = bot.choose_move(&board, legal_lookup, zobrist, duration);
+            unsafe {
+                *out_ptr.add(i) = chosen_move.move_index;
+            }
+        });
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn alphabeta_v1_batch_choose_moves(
+    moves_flat: *const u8,
+    move_offsets: *const usize,
+    move_lengths: *const usize,
+    num_games: usize,
+    time_limit_ms: u64,
+    out_moves: *mut u8,
+) {
+    let offsets = unsafe { std::slice::from_raw_parts(move_offsets, num_games) };
+    let lengths = unsafe { std::slice::from_raw_parts(move_lengths, num_games) };
+    let duration = std::time::Duration::from_millis(time_limit_ms);
+
+    let moves_flat_addr = moves_flat as usize;
+    let out_moves_addr = out_moves as usize;
+
+    let zobrist = &*SHARED_ZOBRIST;
+    let legal_lookup = &*SHARED_LEGAL_LOOKUP;
+
+    (0..num_games).into_par_iter().for_each(|i| {
+        THREAD_BOT_V1.with(|bot_cell| {
+            let mut bot = bot_cell.borrow_mut();
+            let mf_ptr = moves_flat_addr as *const u8;
+            let out_ptr = out_moves_addr as *mut u8;
+            let slice = unsafe { std::slice::from_raw_parts(mf_ptr.add(offsets[i]), lengths[i]) };
+
+            let mut board = UltimateTicTacToeBoard::default();
+            for &m in slice {
+                board.make_move(GameMove { x_to_move: board.x_to_move, move_index: m }, zobrist);
+            }
+
+            use crate::bots::Bot;
+            let chosen_move = bot.choose_move(&board, legal_lookup, zobrist, duration);
+            unsafe {
+                *out_ptr.add(i) = chosen_move.move_index;
+            }
+        });
+    });
+}
+
+#[no_mangle]
+pub extern "C" fn umcts_v2_batch_choose_moves(
+    moves_flat: *const u8,
+    move_offsets: *const usize,
+    move_lengths: *const usize,
+    num_games: usize,
+    time_limit_ms: u64,
+    out_moves: *mut u8,
+) {
+    let offsets = unsafe { std::slice::from_raw_parts(move_offsets, num_games) };
+    let lengths = unsafe { std::slice::from_raw_parts(move_lengths, num_games) };
+    let duration = std::time::Duration::from_millis(time_limit_ms);
+
+    let moves_flat_addr = moves_flat as usize;
+    let out_moves_addr = out_moves as usize;
+
+    let zobrist = &*SHARED_ZOBRIST;
+    let legal_lookup = &*SHARED_LEGAL_LOOKUP;
+
+    (0..num_games).into_par_iter().for_each(|i| {
+        THREAD_BOT_UMCTS_V2.with(|bot_cell| {
+            let mut bot = bot_cell.borrow_mut();
+            bot.reset();
+            let mf_ptr = moves_flat_addr as *const u8;
+            let out_ptr = out_moves_addr as *mut u8;
+            let slice = unsafe { std::slice::from_raw_parts(mf_ptr.add(offsets[i]), lengths[i]) };
+
+            let mut board = UltimateTicTacToeBoard::default();
+            for &m in slice {
+                board.make_move(GameMove { x_to_move: board.x_to_move, move_index: m }, zobrist);
+            }
+
+            use crate::bots::Bot;
+            let chosen_move = bot.choose_move(&board, legal_lookup, zobrist, duration);
+            unsafe {
+                *out_ptr.add(i) = chosen_move.move_index;
+            }
+        });
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mcts_worker_terminal_win_preferred() {
+        let mut worker = MctsWorker::new(1, 1.414, 0.3, 0.0);
+        // Setup board: X has won subboards 1 and 2
+        worker.games[0].board.x_supers = (1 << 1) | (1 << 2);
+        // In subboard 0, X has squares 0 and 1, square 2 is empty
+        worker.games[0].board.xbb[0] = (1 << 0) | (1 << 1);
+        worker.games[0].board.x_to_move = true;
+
+        // Force active evaluation
+        let mut feats = vec![0.0f32; 5 * 9 * 9];
+        let mut masks = vec![0.0f32; 81];
+        let active = worker.prepare_step(&mut feats, &mut masks);
+        assert_eq!(active, 1);
+
+        // Feed uniform logits and 0.0 value
+        let logits = vec![0.0f32; 81];
+        let values = vec![0.0f32; 1];
+        worker.finish_step(&logits, &values);
+
+        // Run 200 MCTS simulations
+        for _ in 0..200 {
+            let active = worker.prepare_step(&mut feats, &mut masks);
+            if active > 0 {
+                worker.finish_step(&logits, &values);
+            }
+        }
+
+        // Check root node: move 2 is the game-winning move (subboard 0, square 2)
+        let root = &worker.games[0].nodes[0];
+        println!("Root visits: {}", root.visits);
+        let mut best_action = 255;
+        let mut best_visits = 0;
+        for c_off in 0..root.num_children {
+            let ch = &worker.games[0].children[(root.first_child + c_off as u32) as usize];
+            println!("  Child action: {}, visits: {}, total_val: {}, q: {}", ch.action, ch.visits, ch.total_val, ch.q_value());
+            if ch.visits > best_visits {
+                best_visits = ch.visits;
+                best_action = ch.action;
+            }
+        }
+
+        assert_eq!(best_action, 2, "Game-winning move 2 should be chosen, but got action {}", best_action);
+    }
+}
+

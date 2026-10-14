@@ -60,6 +60,16 @@ During this engineering session, the Ultimate Tic-Tac-Toe (UTTT) AI system achie
   ```
 - **Throughput**: Completely eliminates Python GIL contention, dict overhead, and Python object allocation, raising MCTS search throughput from ~3,760 evals/s to **25,000–35,000 evals/s** during continuous self-play and up to **240,000–368,000 evals/s** on pure batched forward passes.
 - **Exploration Schedule**: Enforces $T=1.0$ for plies $\le 20$ and $T=0.5$ for plies $> 20$, guaranteeing that search diversity never collapses to $T=0$ during game generation.
+- **Environment & Build Prerequisites**:
+  - The Python scripts require PyTorch with CUDA support, installed in the dedicated virtual environment:
+    ```bash
+    source ml/.venv/bin/activate
+    # or directly: ml/.venv/bin/python <script>.py
+    ```
+  - `rust_mcts_worker.py` dynamically links `target/release/libuttt.so`. Always ensure the crate is compiled:
+    ```bash
+    cargo build --release -p uttt
+    ```
 
 ### 2.3 Contiguous Stratified Zero-GC Replay Buffer (`ContiguousReplayBuffer`)
 - **File**: [`ml/replay_buffer.py`](file:///home/festivity/agy/uttt-codingame/ml/replay_buffer.py)
@@ -81,7 +91,7 @@ During this engineering session, the Ultimate Tic-Tac-Toe (UTTT) AI system achie
   1. *Subboard Closures are Irreversible Transitions*: Once a subboard is won or tied, it never re-opens. Every move monotonically decreases empty cells ($E_{t+1} = E_t - 1$), making the UTTT game graph a strict Directed Acyclic Graph (DAG) with zero cycles.
   2. *Dihedral Symmetry Reduction*: The 36 subboard pairs $(j, k)$ reduce under $D_4$ grid symmetry into **exactly 8 canonical orbits**:
      `(0, 1)`, `(0, 2)`, `(0, 4)`, `(0, 5)`, `(0, 8)`, `(1, 3)`, `(1, 4)`, `(1, 7)`.
-  3. *Reachable Macro Conditions*: Across all $3^7 = 2,187$ closed configurations, exactly **614 legal, non-terminal macro vectors $\tau_7$** exist.
+  3. *Reachable Macro Conditions*: Across all $3^7 = 2,187$ closed configurations, exactly **614 legal, non-terminal macro vectors $\tau_7$** exist. *(Reconciliation note: While preliminary theoretical bounds in early planning documents estimated up to 854 vectors, the exact, deduplicated empirical solver in `tier7_zfs.rs` proved that exactly 614 canonical reachable vectors exist.)*
   4. *Dense 1-Byte Micro-Pair Packing*: For each of the $11,125 \times 11,125 = \mathbf{123,765,625}$ micro-state pairs, 4 independent game outcomes (Turn X/O $\times$ Target $j/k$) in $\{0, 1, 2\}$ pack into 1 byte ($3^4 = 81 \le 255$). Free choice requires 0 bits because $V(\text{Free}) = \max(V_j, V_k)$.
 
 ### 3.2 Empirical Generation Results
@@ -131,9 +141,13 @@ Executing `target/release/solve_egtb --tier 7 --exhaustive --out-dir /my-zraid/u
   - **`alphabeta_v2` (AlphaBetaV2Bot)**: **2376.1 Elo**
 - The ML bot's internal ratings (Gen 7 at 1906 Elo, Gen 8 at 2031 Elo) were internal self-play ratings uncalibrated against classical engines.
 
-### 4.4 Cycle 1 Self-Play Recovery
+### 4.4 Continuous Self-Play Recovery & Promotion to Generation 9
 - **Cycle 1 Match Result**: Challenger scored **53.39% ± 2.16%** ($1,028\text{W} - 889\text{L} - 131\text{D}$) against the Champion across 2,048 mirrored games (222 double wins vs 163 double losses).
-- This completely reversed the pre-fix regressions (Cycle 1: 29.69%, Cycle 2: 24.46%), proving that the self-play loop is healthy, converging, and actively advancing.
+- **Cycle 2 Match & Promotion Milestone**:
+  - Challenger generated 63,979 new states at 31,579 evals/s, trained 3 epochs (loss $2.6101 \to 2.5935$).
+  - In the 2,048-game paired mirror gating match, Challenger achieved **55.66% ± 2.15% win rate** ($1,082\text{W} - 850\text{L} - 116\text{D}$, with 259 double wins vs 149 double losses).
+  - Exceeding the 55.0% gating threshold, the Challenger was officially crowned **Generation 9 Champion (Elo 2070.6)**!
+  - `ml/champion.pt` was updated, and Cycle 3 self-play immediately commenced on the host GPU.
 
 ---
 
@@ -167,20 +181,26 @@ To ensure the codebase is self-documenting for any fresh agent, the following st
 
 For the next agent continuing development on branch `enginerefactor`:
 
-### 6.1 Priority 1: Direct Syzygy Search Pruning in Classical & Neural Engines
-- **Goal**: Integrate [`Tier7ZfsProber`](file:///home/festivity/agy/uttt-codingame/uttt/src/egtb/tier7_zfs.rs) directly into `AlphaBetaBot` ([alphabeta_bot.rs](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/alphabeta_bot.rs)) and `UmctsV2Bot` ([umcts_v2_bot.rs](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/umcts_v2_bot.rs)).
+### 6.1 Priority 1: Direct Syzygy Search Pruning via `EgtbDatabase`
+- **Goal**: Integrate [`Tier7ZfsProber`](file:///home/festivity/agy/uttt-codingame/uttt/src/egtb/tier7_zfs.rs) directly into `EgtbDatabase` ([uttt/src/egtb/mod.rs](file:///home/festivity/agy/uttt-codingame/uttt/src/egtb/mod.rs)), providing an instant single hook for `AlphaBetaBot` ([alphabeta_bot.rs](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/alphabeta_bot.rs)), `AlphaBetaV2Bot` ([alphabeta_v2_bot.rs](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/alphabeta_v2_bot.rs)), and `UmctsV2Bot` ([umcts_v2_bot.rs](file:///home/festivity/agy/uttt-codingame/uttt/src/bots/umcts_v2_bot.rs)).
 - **Mechanism**:
-  - In Alpha-Beta `search()`: whenever `board.get_tied_mask().count_ones() + (board.x_supers | board.o_supers).count_ones() >= 7`, query `Tier7ZfsProber`. If an exact win/loss/draw outcome is returned, immediately prune the entire subtree and return $\pm 10,000$ (or $0$).
+  - In `EgtbDatabase::probe(board)`: when `closed_count >= 7`, dispatch directly to `Tier7ZfsProber` in $< 15$ ns.
+  - In Alpha-Beta `search()`: prune the branch whenever `EgtbDatabase::probe` returns a decisive game-theoretic value ($\pm 10,000$ or $0$).
   - In MCTS `select()` / `simulate()`: truncate tree descent at Tier 7 leaves and backpropagate exact values $+1.0 / 0.0 / -1.0$, cutting search branch depth by up to 20 plies.
 - **Expected Impact**: Massive speedup in deep endgames and tactically complex branch cutoffs.
 
-### 6.2 Priority 2: Exhaustive Tier 6 ZFS Tablebase Solving
+### 6.2 Priority 2: Exhaustive Tier 6 ZFS Tablebase Solving ($E \le 4$ Core Stratum)
 - **Challenge**: Tier 6 has 3 open subboards ($11,125^3 \approx 1.377 \times 10^{12}$ micro triplets, 4.3 PB raw).
-- **Feasible Strategies on the 7.2 TB ZFS Pool**:
-  1. *Core Stratum $E \le 4$*: Precompute all triplets with $\le 4$ empty squares across the 3 open boards (~1.5 TiB compressed on `/my-zraid`), providing instant terminal resolution within 4 plies of any subboard resolution.
-  2. *Canonical Micro-Symmetry Representation*: Reduce each micro board under $D_4$ symmetry from 11,125 states to 1,588 canonical states ($7.0\times$ reduction per board). Canonical triplets $1,588^3 \approx 4.0 \times 10^9$ require only **3.65 TB compressed on ZFS**, fitting 100% of Tier 6 onto the storage pool!
+- **Mathematical Symmetry Clarification**:
+  - *Invalidity of Independent Micro-Rotations*: Move coordinates $(r, c)$ in subboard $j$ determine destination subboard $B' = 3r + c$. Rotating individual subboards independently breaks macro target routing; only simultaneous global $D_4$ transformations preserve the game graph ($8\times$ reduction, not $343\times$).
+- **Feasible Production Strategy on the 7.2 TB ZFS Pool**:
+  - *Core Stratum $E \le 4$*: Precompute all triplets with $\le 4$ empty squares across the 3 open boards (~1.5 TiB compressed on `/my-zraid`), providing instant terminal resolution within 4 plies of any subboard resolution.
+  - Slices can be solved chunk-by-chunk using `solve_egtb --tier 6 --chunk <idx> --chunks <total>` and streamed directly into `/my-zraid/uttt/egtb/tier6/`.
 
-### 6.3 Priority 3: Scaling Transformer Self-Play to Gen 9 and Beyond
+### 6.3 Priority 3: Scaling Transformer Self-Play to Gen 9 & Native Rust Inference
 - **Current State**: Cycle 2 is running smoothly on the RTX 5060 Ti GPU.
 - **Objective**: Monitor cycles as the replay buffer accumulates fresh uncorrupted self-play games. Promote challengers to Generation 9 and Generation 10 when win rates exceed 55%.
-- **Hybrid Search**: Implement `PolicyTransformerAlphaBetaBot` combining depth-10 AlphaBeta search guided by the Gen-8 Transformer priors and Tier 7 tablebase lookups to challenge the 2646.1 Elo `alphabeta` engine directly.
+- **Native Rust Inference for `PolicyTransformerAlphaBetaBot`**:
+  - To challenge the 2646.1 Elo `alphabeta` engine with neural guidance at full search speed, integrate `UTTTTransformer` into Rust via:
+    1. ONNX Runtime using the `ort` Rust crate with TensorRT/CUDA provider, or
+    2. Pure Rust batch FFI bridge via `rust_mcts_worker.py` / C-ABI shared memory.

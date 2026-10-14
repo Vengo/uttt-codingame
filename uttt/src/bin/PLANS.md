@@ -26,8 +26,15 @@ This document details executable binary implementations, CLI subcommands, and su
 3. **`runlocal`** ([`runlocal.rs`](file:///home/festivity/agy/uttt-codingame/uttt/src/bin/runlocal.rs)):
    - Standalone offline test driver for validating CodinGame protocol compatibility locally.
 
+4. **`solve_egtb`** ([`solve_egtb.rs`](file:///home/festivity/agy/uttt-codingame/uttt/src/bin/solve_egtb.rs)):
+   - Standalone batch tablebase solving and chunk consolidation binary.
+   - Supports command-line selection of target endgame tiers (`8`, `7`, `7-zfs`, `6`, `merge6`, `all`).
+   - Automatically multiplexes between resource-bounded `MacroFactoredSolver`, exhaustive 614-slice `Tier7ZfsSolver`, and distributed chunked `RetrogradeSolver`.
+
 ---
 
 ## 2. Status & Verification
-- All 3 binaries compile cleanly in both debug and release configurations (`cargo build --bins`).
+
+- All 4 binaries compile cleanly in both debug and release configurations (`cargo build --bins`).
 - `arena` tested and verified across all subcommands (`tournament`, `match`, `play`, `replay`, `server`, `profile`, `flamegraph`, `study`).
+- `solve_egtb` verified across all tier solving flags and chunk merge operations.

@@ -215,6 +215,7 @@ def run_champion_challenger(
     total_cycles: int = 5,
     parallel_games: int = 1024,
     mcts_simulations: int = 800,
+    c_puct: float = 2.5,
     moves_per_cycle: int = 40,
     eval_pairs: int = 1024,
     eval_sims: int = 100,
@@ -306,8 +307,8 @@ def run_champion_challenger(
         }
 
     # Initialize Pure Rust Rayon MCTS Batch Worker for 240,000+ evals/s GPU Saturation
-    print(f"Initializing RustMctsWorker with {parallel_games} parallel games...")
-    worker = RustMctsWorker(num_games=parallel_games, c_puct=2.0)
+    print(f"Initializing RustMctsWorker with {parallel_games} parallel games (c_puct={c_puct})...")
+    worker = RustMctsWorker(num_games=parallel_games, c_puct=c_puct)
 
     for cycle in range(1, total_cycles + 1):
         print(f"\n============================================================")
@@ -375,7 +376,7 @@ def run_champion_challenger(
         f_drain, m_drain, p_drain, v_drain = worker.drain_samples(max_count=100_000)
         new_samples_count = len(f_drain)
         if new_samples_count > 0:
-            replay_buffer.add_samples_batch(f_drain, m_drain, p_drain, v_drain, tier="deep_mcts")
+            replay_buffer.add_samples_batch(f_drain, m_drain, p_drain, v_drain, tier="self_play")
             replay_buffer.save(buffer_path)
 
         meta["total_games_played"] += parallel_games
@@ -491,8 +492,12 @@ def run_champion_challenger(
         promoted = tourney_res.promoted
         challenger_elo = meta["champion_elo"] + delta_elo
 
+        print(f"\n[Gating Decision] {tourney_res.promotion_reason}")
         print(f"  Match Result: Challenger {chal_wins}W - {champ_wins}L - {draws}D (Win Rate: {win_rate*100:.2f}% ± {tourney_res.margin_of_error*100:.2f}%)")
-        print(f"  Pairwise Breakdown: {tourney_res.challenger_double_wins} Challenger Double Wins (2-0) | {tourney_res.champion_double_wins} Champion Double Wins (0-2) | {tourney_res.symmetrical_splits} Splits")
+        print(f"  Decisive Pairs: {tourney_res.decisive_pairs}/{tourney_res.total_pairs} ({tourney_res.decisive_pairs/max(1, tourney_res.total_pairs)*100:.1f}%)")
+        print(f"  Decisive Win Rate: {tourney_res.decisive_win_rate*100:.2f}% (Ratio {tourney_res.double_win_ratio}:1, p={tourney_res.decisive_p_value:.4f})")
+        print(f"  Symmetrical Splits: {tourney_res.symmetrical_splits}/{tourney_res.total_pairs} ({tourney_res.symmetrical_splits/max(1, tourney_res.total_pairs)*100:.1f}%)")
+        print(f"  Pairwise Breakdown: {tourney_res.challenger_double_wins} Challenger Double Wins (2-0) | {tourney_res.champion_double_wins} Champion Double Wins (0-2)")
         print(f"  Tournament Completed: {tourney_res.total_games} games in {tourney_res.elapsed_seconds:.2f}s ({tourney_res.evals_per_second:,.0f} evals/s)")
 
         if promoted:
@@ -530,7 +535,7 @@ def run_champion_challenger(
             else:
                 print(f"🏆 [TEST MODE] Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
         else:
-            print(f"🛡️  DEFENSE! Champion retains title (Challenger: {win_rate*100:.1f}% < {promote_threshold*100:.0f}%)")
+            print(f"🛡️  DEFENSE! Champion retains title ({tourney_res.promotion_reason})")
 
         # Record history
         cycle_record = {
@@ -546,6 +551,11 @@ def run_champion_challenger(
             "challenger_double_wins": tourney_res.challenger_double_wins,
             "champion_double_wins": tourney_res.champion_double_wins,
             "symmetrical_splits": tourney_res.symmetrical_splits,
+            "decisive_pairs": tourney_res.decisive_pairs,
+            "decisive_win_rate": round(tourney_res.decisive_win_rate, 4),
+            "double_win_ratio": tourney_res.double_win_ratio,
+            "decisive_p_value": round(tourney_res.decisive_p_value, 5),
+            "promotion_reason": tourney_res.promotion_reason,
             "tournament_elapsed_sec": round(tourney_res.elapsed_seconds, 2),
             "loss": round(last_loss, 4),
             "promoted": promoted,
@@ -579,6 +589,7 @@ if __name__ == "__main__":
     parser.add_argument("--cycles", type=int, default=3, help="Number of champion/challenger cycles")
     parser.add_argument("--games", type=int, default=1024, help="Parallel games per self-play batch (GPU saturated)")
     parser.add_argument("--mcts-sims", type=int, default=800, help="MCTS visits per move (Deep AlphaZero)")
+    parser.add_argument("--c-puct", type=float, default=2.5, help="PUCT exploration constant (default: 2.5)")
     parser.add_argument("--moves-per-cycle", type=int, default=40, help="Moves played across parallel games per self-play cycle")
     parser.add_argument("--eval-pairs", type=int, default=1024, help="Number of paired positions in gating tournament (default: 1024 -> 2048 games)")
     parser.add_argument("--eval-games", type=int, default=None, help="Legacy alias for total evaluation games (eval_pairs = eval_games // 2)")
@@ -601,6 +612,7 @@ if __name__ == "__main__":
         total_cycles=args.cycles,
         parallel_games=args.games,
         mcts_simulations=args.mcts_sims,
+        c_puct=args.c_puct,
         moves_per_cycle=args.moves_per_cycle,
         eval_pairs=eval_pairs,
         eval_sims=args.eval_sims,

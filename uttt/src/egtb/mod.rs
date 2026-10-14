@@ -1,6 +1,7 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use memmap2::Mmap;
 
 use crate::canonical::{
@@ -14,6 +15,7 @@ use crate::uttt_trait_solving::{UltimateTicTacToeBoard, ZobristConstants};
 pub mod retrograde;
 pub mod macro_factored;
 pub mod tier6;
+pub mod tier6_zfs;
 pub mod tier7_zfs;
 
 const EGTB_MAGIC: &[u8; 8] = b"UTTTEG01";
@@ -55,6 +57,7 @@ pub struct EgtbDatabase {
     pub tier_paths: [PathBuf; 10],
     pub zobrist_constants: ZobristConstants,
     pub macro_prober: Option<macro_factored::MacroFactoredProber>,
+    pub zfs_tier7_prober: Option<Arc<tier7_zfs::Tier7ZfsProber>>,
 }
 
 impl Default for EgtbDatabase {
@@ -88,6 +91,7 @@ impl EgtbDatabase {
             tier_paths,
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
             macro_prober: None,
+            zfs_tier7_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -122,6 +126,7 @@ impl EgtbDatabase {
             tier_paths: tiers,
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
             macro_prober: None,
+            zfs_tier7_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -145,6 +150,7 @@ impl EgtbDatabase {
             tier_paths: tiers,
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
             macro_prober: None,
+            zfs_tier7_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -251,6 +257,18 @@ impl EgtbDatabase {
         let macro_count = mp.tier8_count + mp.tier7_count + mp.tier6_count;
         self.macro_prober = Some(mp);
 
+        // 4. Load exhaustive Tier 7 ZFS prober if available (614 canonical slices, < 15 ns direct-index)
+        let zfs_tier7_candidates = [
+            self.base_dir.join("tier7"),
+            PathBuf::from("/my-zraid/uttt/egtb/tier7"),
+            PathBuf::from("egtb/tier7"),
+        ];
+        self.zfs_tier7_prober = zfs_tier7_candidates
+            .into_iter()
+            .find(|p| p.join("manifest.json").exists())
+            .and_then(|p| tier7_zfs::Tier7ZfsProber::new(&p).ok())
+            .map(Arc::new);
+
         self.entry_count = total_count + macro_count;
         Ok(self.entry_count)
     }
@@ -281,6 +299,20 @@ impl EgtbDatabase {
         if let Some(ref mp) = self.macro_prober {
             if let Some(res) = mp.probe_game_result(board) {
                 return Some(res);
+            }
+        }
+
+        // 1b. Probe the exhaustive Tier 7 ZFS direct-index tablebase (< 15 ns)
+        if let Some(ref zfs) = self.zfs_tier7_prober {
+            if board.get_resolved_count() >= 7 {
+                if let Some(outcome) = zfs.probe(board) {
+                    return match outcome {
+                        EgtbOutcome::P1Win => Some(GameResult::P1Win),
+                        EgtbOutcome::P2Win => Some(GameResult::P2Win),
+                        EgtbOutcome::Draw => Some(GameResult::Tie),
+                        EgtbOutcome::Unknown => None,
+                    };
+                }
             }
         }
 

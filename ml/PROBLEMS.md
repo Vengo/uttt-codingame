@@ -69,6 +69,18 @@ graph TD
   ```
   The value $-1 \times 10^4$ evaluates to $\exp(-10000) = 0.0$ in softmax without exceeding FP16 dynamic range.
 
+### 2.6 MCTS Simulation Scaling & Prior Bias
+- **Problem**: [`mcts_simulation_scaling_problems.md`](file:///home/festivity/agy/uttt-codingame/ml/mcts_simulation_scaling_problems.md) identifies that at $N = 400$ simulations, the PUCT tree descent confirms the raw neural net prior $P(a|s)$ in $33.3\%$ of positions, agreeing with deep search ($N = 1600$) only $41.7\%$ of the time. When $\pi(a) \approx P(a)$, the policy cross-entropy gradient approaches zero, stalling reinforcement learning progress.
+- **Solution**: Scale self-play simulations to $N = 800$ and tune $c_{\text{puct}} = 2.5$, allowing MCTS to overturn prior bias in $> 75\%$ of positions and provide high-entropy, tactically deep targets with negligible latency overhead on the RTX 5060 Ti ($> 35,000$ evals/s).
+
+### 2.7 Replay Buffer Routing Defect & 65% Stale Data
+- **Problem**: [`replay_buffer_routing_problems.md`](file:///home/festivity/agy/uttt-codingame/ml/replay_buffer_routing_problems.md) diagnoses a routing bug where `champion_challenger.py` passed `tier="deep_mcts"`, causing all new self-play samples to be routed exclusively into `deep_draw`. This permanently froze the $350,000$-state `self_play` partition at pointer 0. Combined with $300,000$ static Grandmaster states, exactly $65\%$ of every sampled training batch consisted of stale legacy data, anchoring the loss at $\sim 2.62$.
+- **Solution**: Pass `tier="self_play"` dynamically, rebalance capacities to 100k GM (10%), 450k Deep Draw (45%), and 450k active Self-Play (45%), and execute buffer migration to unfreeze turnover across $90\%$ active reinforcement learning states.
+
+### 2.8 Arena Gating & Symmetrical Split Dilution
+- **Problem**: [`arena_gating_problems.md`](file:///home/festivity/agy/uttt-codingame/ml/arena_gating_problems.md) proves that in 2,048-game mirror tournaments, $62.4\%$ of position pairs end in symmetrical 1-1 splits due to Player 1 initiative. Because $62.4\%$ of games are tied at 0.5 points, reaching the rigid $55.0\%$ overall win rate requires winning $\ge 63.3\%$ of decisive pairs (a 1.73:1 double-win ratio). Monotonically superior Challengers achieving $52.5\%$ to $54.3\%$ win rates were repeatedly rejected for 25 cycles.
+- **Solution**: Implement Decisive-Pair Gating ($W_{\text{decisive}} \ge 56.5\%$ with binomial $p < 0.05$ and $W_{\text{total}} \ge 52.5\%$), enabling steady, statistically validated model promotions while preventing champion stagnation.
+
 ---
 
 ## 3. Invariants and Safety Guarantees
@@ -81,3 +93,4 @@ graph TD
 | **Dynamic Batch Termination** | Sentinel move `255` and status checks | Prevents out-of-bounds indexing or redundant computation on finished games during tournament play. |
 | **Dynamic Tier Proportions** | Allocation scales with populated counts | Avoids zero-division errors and oversampling when starting training on partially filled replay buffers. |
 | **Deterministic Benchmarking** | $T = 0.0$ and $\epsilon_{\text{dir}} = 0.0$ | Ensures tournament evaluations reflect true competitive capability without stochastic noise. |
+| **Decisive Statistical Rigor** | Exact binomial test $p < 0.05$ | Prevents false promotion of noisy challengers in mirror gating tournaments. |

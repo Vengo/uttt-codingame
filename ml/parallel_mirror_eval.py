@@ -14,6 +14,7 @@ Guarantees:
 
 from dataclasses import dataclass
 import json
+import math
 import os
 import random
 import sys
@@ -29,6 +30,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ml.model import AlphaZeroResNet
 from ml.dataset import UTTTEnv
 from ml.rust_mcts_worker import RustMctsWorker
+
+
+def binomial_p_value(k: int, n: int, p: float = 0.5) -> float:
+    """Computes exact one-tailed binomial p-value P(X >= k | n, p) using Python standard library."""
+    if n <= 0 or k <= 0:
+        return 1.0
+    if k > n:
+        return 0.0
+    tail = sum(math.comb(n, i) for i in range(k, n + 1))
+    return float(tail * (p ** n))
 
 
 @dataclass
@@ -58,7 +69,12 @@ class TournamentResult:
     promoted: bool
     elapsed_seconds: float
     plies_played: int
-    evals_per_second: float
+    evals_per_second: float = 0.0
+    decisive_pairs: int = 0
+    decisive_win_rate: float = 0.5
+    double_win_ratio: float = 1.0
+    decisive_p_value: float = 1.0
+    promotion_reason: str = "Rejected"
 
 
 def generate_candidate_positions(
@@ -351,7 +367,24 @@ def run_parallel_mirror_tournament(
     # 95% Confidence Interval Margin of Error: 1.96 * sqrt(p*(1-p)/N)
     margin = 1.96 * np.sqrt(max(0.0, win_rate * (1.0 - win_rate)) / max(1, num_games))
 
-    promoted = win_rate >= 0.55
+    # Calculate decisive-pair statistics
+    decisive_pairs = chal_double_wins + champ_double_wins
+    decisive_wr = (chal_double_wins / decisive_pairs) if decisive_pairs > 0 else 0.5
+    dw_ratio = round(chal_double_wins / max(1, champ_double_wins), 2)
+    p_val = binomial_p_value(chal_double_wins, decisive_pairs, p=0.5)
+
+    # Dual-gate promotion check
+    gate_a_passed = win_rate >= 0.55
+    gate_b_passed = (win_rate >= 0.525) and (decisive_wr >= 0.565) and (p_val < 0.05)
+    promoted = gate_a_passed or gate_b_passed
+
+    if gate_a_passed:
+        promotion_reason = f"Gate A Passed: Absolute Win Rate {win_rate*100:.2f}% >= 55.0%"
+    elif gate_b_passed:
+        promotion_reason = (f"Gate B Passed: Decisive Win Rate {decisive_wr*100:.2f}% >= 56.5% "
+                            f"(Ratio {dw_ratio}:1, p={p_val:.4f} < 0.05) with Overall {win_rate*100:.2f}% >= 52.5%")
+    else:
+        promotion_reason = f"Rejected: Win Rate {win_rate*100:.2f}%, Decisive WR {decisive_wr*100:.2f}%, p={p_val:.4f}"
 
     return TournamentResult(
         total_pairs=num_pairs,
@@ -369,6 +402,11 @@ def run_parallel_mirror_tournament(
         elapsed_seconds=float(elapsed_total),
         plies_played=ply,
         evals_per_second=float(evals_per_sec),
+        decisive_pairs=decisive_pairs,
+        decisive_win_rate=float(decisive_wr),
+        double_win_ratio=float(dw_ratio),
+        decisive_p_value=float(p_val),
+        promotion_reason=promotion_reason,
     )
 
 
@@ -428,6 +466,9 @@ if __name__ == "__main__":
     print(f"  Challenger Double Wins (2-0): {res.challenger_double_wins}")
     print(f"  Champion Double Wins (0-2):   {res.champion_double_wins}")
     print(f"  Symmetrical Splits:          {res.symmetrical_splits}")
+    print(f"  Decisive Pairs:              {res.decisive_pairs}/{res.total_pairs} ({res.decisive_pairs/max(1, res.total_pairs)*100:.1f}%)")
+    print(f"  Decisive Win Rate:           {res.decisive_win_rate*100:.2f}% (Ratio {res.double_win_ratio}:1, p={res.decisive_p_value:.4f})")
     print(f"  Elapsed Time: {res.elapsed_seconds:.2f}s ({res.plies_played} plies, {res.evals_per_second:,.0f} evals/s)")
+    print(f"  Promotion Decision: {res.promotion_reason}")
     print(f"  Promotion Status: {'PROMOTED' if res.promoted else 'REJECTED'}")
     print("====================================================")

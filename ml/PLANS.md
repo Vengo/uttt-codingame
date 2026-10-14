@@ -34,7 +34,22 @@ flowchart TD
 
 ---
 
-## 2. Core Subsystems & Components
+## 2. Environment & Compilation Prerequisites
+
+To execute training, self-play, or tournament benchmarks:
+1. **Python Virtual Environment**: PyTorch with CUDA is configured in `ml/.venv/`. Always activate or invoke directly:
+   ```bash
+   source ml/.venv/bin/activate
+   # or: ml/.venv/bin/python ml/<script>.py
+   ```
+2. **Native Rust Dynamic Library**: Python workers load `target/release/libuttt.so`. Rebuild whenever Rust engine code changes:
+   ```bash
+   cargo build --release -p uttt
+   ```
+
+---
+
+## 3. Core Subsystems & Components
 
 ### 2.1 Native Rust Rayon MCTS Engine Bridge
 - **Module**: [`rust_mcts_worker.py`](file:///home/festivity/agy/uttt-codingame/ml/rust_mcts_worker.py) ([`rust_mcts_worker_plans.md`](file:///home/festivity/agy/uttt-codingame/ml/rust_mcts_worker_plans.md))
@@ -73,7 +88,31 @@ flowchart TD
   - Conducts paired mirror arena tournaments ($\ge 1,024$ pairs / $2,048$ games) enforcing a strict $\ge 55\%$ promotion threshold.
   - Produces atomic live JSON telemetry for real-time monitoring and synchronizes INT8 engine weights upon promotion.
 
-### 2.5 Multi-Agent Tournaments & Rating Calibration
+### 2.5 MCTS Simulation Scaling Architecture
+- **Plan Reference**: [`mcts_simulation_scaling_plans.md`](file:///home/festivity/agy/uttt-codingame/ml/mcts_simulation_scaling_plans.md)
+- **Role**: Scales self-play search depth from 400 to 800 simulations and tunes $c_{\text{puct}} = 2.5$.
+- **Responsibilities**:
+  - Provides deeper 2-ply non-local routing refutations, doubling visits to critical branches.
+  - Mitigates prior confirmation bias, driving policy-prior divergence $D_{\text{KL}}$ up to $0.1368$.
+  - Preserves evaluation throughput ($> 35,000$ evals/s) on RTX 5060 Ti, capping per-step move latency to $\le 2.2$s.
+
+### 2.6 Replay Buffer Routing & Freshness Optimization
+- **Plan Reference**: [`replay_buffer_routing_plans.md`](file:///home/festivity/agy/uttt-codingame/ml/replay_buffer_routing_plans.md)
+- **Role**: Eliminates the `tier="deep_mcts"` routing defect, rebalances capacities, and unfreezes the stale $350,000$-state slice.
+- **Responsibilities**:
+  - Dynamically routes decisive self-play games to `self_play` and draw/deep games to `deep_draw`.
+  - Rebalances buffer to 100k GM (10%), 450k Deep Draw (45%), and 450k Active Self-Play (45%).
+  - Ensures $90\%$ of every training batch consists of fresh reinforcement learning experiences.
+
+### 2.7 Decisive-Pair Arena Gating Dynamics
+- **Plan Reference**: [`arena_gating_plans.md`](file:///home/festivity/agy/uttt-codingame/ml/arena_gating_plans.md)
+- **Role**: Implements dual-gate promotion criteria accounting for the $62.4\%$ symmetrical 1-1 split floor.
+- **Responsibilities**:
+  - Computes decisive pair win rate $W_{\text{decisive}} = W_{\text{double}} / (W_{\text{double}} + L_{\text{double}})$.
+  - Promotes models demonstrating statistically significant decisive superiority ($W_{\text{decisive}} \ge 56.5\%$, $W_{\text{total}} \ge 52.5\%$, $p < 0.05$).
+  - Prevents champion stagnation while rigorously guarding against regressive promotions.
+
+### 2.8 Multi-Agent Tournaments & Rating Calibration
 - **Module**: [`tournament_3way.py`](file:///home/festivity/agy/uttt-codingame/ml/tournament_3way.py) ([`tournament_3way_plans.md`](file:///home/festivity/agy/uttt-codingame/ml/tournament_3way_plans.md))
 - **Role**: Benchmarks heterogeneous competitors (Transformer vs. ResNet vs. native AlphaBeta minimax).
 - **Responsibilities**:

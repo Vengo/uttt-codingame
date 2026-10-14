@@ -49,9 +49,9 @@ class ContiguousStratifiedReplayBuffer:
     def __init__(
         self,
         capacity: int = 1_000_000,
-        gm_ratio: float = 0.30,
-        deep_draw_ratio: float = 0.35,
-        self_play_ratio: float = 0.35,
+        gm_ratio: float = 0.10,
+        deep_draw_ratio: float = 0.45,
+        self_play_ratio: float = 0.45,
     ):
         self.capacity = int(capacity)
         self.gm_capacity = int(capacity * gm_ratio)
@@ -100,7 +100,7 @@ class ContiguousStratifiedReplayBuffer:
         legal_mask: np.ndarray,
         policy: np.ndarray,
         value: float,
-        game_length: int = 30,
+        game_length: Optional[int] = None,
         tier: str = "self_play",
     ):
         """Adds a single sample into the contiguous buffer with ring eviction."""
@@ -109,47 +109,26 @@ class ContiguousStratifiedReplayBuffer:
         pol_f32 = policy.astype(np.float32) if policy.dtype != np.float32 else policy
         val_f32 = float(value)
 
-        is_deep_or_draw = (game_length >= 38) or (abs(val_f32) < 0.05) or (tier in ("deep_draw", "deep_mcts"))
+        # Compute board ply: use explicit game_length if provided, otherwise derive from marks
+        if game_length is not None:
+            ply = game_length
+        else:
+            ply = int(obs_u8[0].sum() + obs_u8[1].sum())
+        is_deep_or_draw = (ply >= 38) or (abs(val_f32) < 0.05) or (tier == "deep_draw")
 
-        # Route to appropriate tier, falling back to any tier with available capacity before ring evicting
+        # Route to appropriate tier strictly within dedicated bounds
         if tier == "grandmaster" and self.gm_capacity > 0:
             slot = self.gm_start + self.gm_ptr
             self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
             self.gm_count = min(self.gm_count + 1, self.gm_capacity)
         elif is_deep_or_draw:
-            if self.deep_draw_count < self.deep_draw_capacity:
-                slot = self.deep_draw_start + self.deep_draw_ptr
-                self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
-                self.deep_draw_count += 1
-            elif self.self_play_count < self.self_play_capacity:
-                slot = self.self_play_start + self.self_play_ptr
-                self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
-                self.self_play_count += 1
-            elif self.gm_count < self.gm_capacity:
-                slot = self.gm_start + self.gm_ptr
-                self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
-                self.gm_count += 1
-            else:
-                # All tiers full: ring evict within deep_draw tier
-                slot = self.deep_draw_start + self.deep_draw_ptr
-                self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
+            slot = self.deep_draw_start + self.deep_draw_ptr
+            self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
+            self.deep_draw_count = min(self.deep_draw_count + 1, self.deep_draw_capacity)
         else:
-            if self.self_play_count < self.self_play_capacity:
-                slot = self.self_play_start + self.self_play_ptr
-                self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
-                self.self_play_count += 1
-            elif self.deep_draw_count < self.deep_draw_capacity:
-                slot = self.deep_draw_start + self.deep_draw_ptr
-                self.deep_draw_ptr = (self.deep_draw_ptr + 1) % self.deep_draw_capacity
-                self.deep_draw_count += 1
-            elif self.gm_count < self.gm_capacity:
-                slot = self.gm_start + self.gm_ptr
-                self.gm_ptr = (self.gm_ptr + 1) % self.gm_capacity
-                self.gm_count += 1
-            else:
-                # All tiers full: ring evict within self_play tier
-                slot = self.self_play_start + self.self_play_ptr
-                self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
+            slot = self.self_play_start + self.self_play_ptr
+            self.self_play_ptr = (self.self_play_ptr + 1) % self.self_play_capacity
+            self.self_play_count = min(self.self_play_count + 1, self.self_play_capacity)
 
         self.observations[slot] = obs_u8
         self.legal_masks[slot] = mask_u8
@@ -163,7 +142,7 @@ class ContiguousStratifiedReplayBuffer:
         legal_masks: np.ndarray,
         policies: np.ndarray,
         values: np.ndarray,
-        tier: str = "deep_mcts",
+        tier: str = "self_play",
     ):
         """Adds a batch of samples into the contiguous buffer with ring eviction."""
         n = len(observations)
@@ -309,17 +288,25 @@ class ContiguousStratifiedReplayBuffer:
             data = np.load(filepath, mmap_mode="r")
             meta = data["meta"]
             loaded_cap = int(meta[0])
+            old_gm_cap = int(meta[1])
+            old_deep_cap = int(meta[2])
+            old_sp_cap = int(meta[3])
 
-            if loaded_cap != self.capacity:
-                print(f"Notice: Checkpoint capacity ({loaded_cap:,}) differs from current ({self.capacity:,}). Re-ingesting valid items.")
+            if (loaded_cap != self.capacity or
+                old_gm_cap != self.gm_capacity or
+                old_deep_cap != self.deep_draw_capacity or
+                old_sp_cap != self.self_play_capacity):
+                print(f"Notice: Checkpoint capacities (gm={old_gm_cap:,}, deep={old_deep_cap:,}, sp={old_sp_cap:,}) "
+                      f"differ from current (gm={self.gm_capacity:,}, deep={self.deep_draw_capacity:,}, sp={self.self_play_capacity:,}). "
+                      f"Re-ingesting and re-aligning valid slices.")
                 # Copy matching counts
                 copy_gm = min(int(meta[5]), self.gm_capacity)
                 copy_deep = min(int(meta[7]), self.deep_draw_capacity)
                 copy_sp = min(int(meta[9]), self.self_play_capacity)
 
                 old_gm_start = 0
-                old_deep_start = int(meta[1])
-                old_sp_start = int(meta[1]) + int(meta[2])
+                old_deep_start = old_gm_cap
+                old_sp_start = old_gm_cap + old_deep_cap
 
                 if copy_gm > 0:
                     self.observations[:copy_gm] = data["observations"][old_gm_start : old_gm_start + copy_gm]

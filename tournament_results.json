@@ -1,0 +1,1834 @@
+{
+  "winner": "alphabeta (AlphaBetaBot)",
+  "leaderboard": [
+    {
+      "rank": 1,
+      "bot_name": "alphabeta (AlphaBetaBot)",
+      "elo": 1712.9905698733683,
+      "points": 27.5,
+      "games_played": 32,
+      "wins": 27,
+      "losses": 4,
+      "draws": 1,
+      "win_percentage": 85.9375
+    },
+    {
+      "rank": 2,
+      "bot_name": "book_alphabeta (book_alphabeta)",
+      "elo": 1678.5584319992847,
+      "points": 25.5,
+      "games_played": 32,
+      "wins": 25,
+      "losses": 6,
+      "draws": 1,
+      "win_percentage": 79.6875
+    },
+    {
+      "rank": 3,
+      "bot_name": "umcts_v2 (UmctsV2Bot)",
+      "elo": 1601.628968656558,
+      "points": 21.5,
+      "games_played": 32,
+      "wins": 21,
+      "losses": 10,
+      "draws": 1,
+      "win_percentage": 67.1875
+    },
+    {
+      "rank": 4,
+      "bot_name": "heuristic_mcts (HeuristicMctsBot)",
+      "elo": 1605.1062646677399,
+      "points": 21.0,
+      "games_played": 32,
+      "wins": 20,
+      "losses": 10,
+      "draws": 2,
+      "win_percentage": 65.625
+    },
+    {
+      "rank": 5,
+      "bot_name": "mcts (MctsBot)",
+      "elo": 1543.0018730215895,
+      "points": 19.0,
+      "games_played": 32,
+      "wins": 18,
+      "losses": 12,
+      "draws": 2,
+      "win_percentage": 59.375
+    },
+    {
+      "rank": 6,
+      "bot_name": "book_umcts_v2 (book_umcts_v2)",
+      "elo": 1522.990622527281,
+      "points": 17.5,
+      "games_played": 32,
+      "wins": 16,
+      "losses": 13,
+      "draws": 3,
+      "win_percentage": 54.6875
+    },
+    {
+      "rank": 7,
+      "bot_name": "original_umcts (OriginalUmctsBot)",
+      "elo": 1336.6792670467933,
+      "points": 8.0,
+      "games_played": 32,
+      "wins": 8,
+      "losses": 24,
+      "draws": 0,
+      "win_percentage": 25.0
+    },
+    {
+      "rank": 8,
+      "bot_name": "rule_based (RuleBasedBot)",
+      "elo": 1280.4381365377885,
+      "points": 4.0,
+      "games_played": 32,
+      "wins": 4,
+      "losses": 28,
+      "draws": 0,
+      "win_percentage": 12.5
+    },
+    {
+      "rank": 9,
+      "bot_name": "random (RandomBot)",
+      "elo": 1218.6058656695968,
+      "points": 0.0,
+      "games_played": 32,
+      "wins": 0,
+      "losses": 32,
+      "draws": 0,
+      "win_percentage": 0.0
+    }
+  ],
+  "matches": [
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "RuleBasedBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "OWin",
+          "total_turns": 36,
+          "avg_time_x_ms": 0.0006740000000000001,
+          "avg_time_o_ms": 0.0005148333333333334,
+          "total_duration_ms": 0.028051999999999997
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 0.0004978846153846153,
+          "avg_time_o_ms": 0.00009292,
+          "total_duration_ms": 0.022682
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "OWin",
+          "total_turns": 36,
+          "avg_time_x_ms": 0.00008466666666666665,
+          "avg_time_o_ms": 0.0005665555555555557,
+          "total_duration_ms": 0.016942000000000002
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 0.0006178333333333333,
+          "avg_time_o_ms": 0.00006476470588235294,
+          "total_duration_ms": 0.01609
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "AlphaBetaBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 36,
+          "avg_time_x_ms": 0.0005356111111111113,
+          "avg_time_o_ms": 18.77720283333333,
+          "total_duration_ms": 338.01827499999996
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 25,
+          "avg_time_x_ms": 20.001504153846152,
+          "avg_time_o_ms": 0.00033041666666666663,
+          "total_duration_ms": 260.033478
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 0.0002835909090909092,
+          "avg_time_o_ms": 18.87000790909091,
+          "total_duration_ms": 415.16465600000004
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 20.00056605555556,
+          "avg_time_o_ms": 0.00018376470588235297,
+          "total_duration_ms": 360.025821
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "MctsBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 34,
+          "avg_time_x_ms": 0.0007212941176470587,
+          "avg_time_o_ms": 20.152195941176473,
+          "total_duration_ms": 342.61146599999995
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 37,
+          "avg_time_x_ms": 20.16545647368421,
+          "avg_time_o_ms": 0.0001615,
+          "total_duration_ms": 383.158691
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 0.00020454166666666667,
+          "avg_time_o_ms": 20.21880708333333,
+          "total_duration_ms": 485.273173
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 31,
+          "avg_time_x_ms": 20.16213525,
+          "avg_time_o_ms": 0.00019173333333333332,
+          "total_duration_ms": 322.608998
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "HeuristicMctsBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 30,
+          "avg_time_x_ms": 0.00021126666666666666,
+          "avg_time_o_ms": 20.124775399999997,
+          "total_duration_ms": 301.88474399999996
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 37,
+          "avg_time_x_ms": 20.140657789473682,
+          "avg_time_o_ms": 0.00018022222222222224,
+          "total_duration_ms": 382.687997
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 0.0001844090909090909,
+          "avg_time_o_ms": 20.15137831818182,
+          "total_duration_ms": 443.346615
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 20.164979454545456,
+          "avg_time_o_ms": 0.0002155238095238095,
+          "total_duration_ms": 443.648683
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "OriginalUmctsBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "OWin",
+          "total_turns": 62,
+          "avg_time_x_ms": 0.0005096451612903225,
+          "avg_time_o_ms": 20.006340419354842,
+          "total_duration_ms": 620.229478
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 39,
+          "avg_time_x_ms": 20.008140649999998,
+          "avg_time_o_ms": 0.0005108947368421054,
+          "total_duration_ms": 400.182161
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "OWin",
+          "total_turns": 50,
+          "avg_time_x_ms": 0.00055008,
+          "avg_time_o_ms": 20.006537240000004,
+          "total_duration_ms": 500.18956299999996
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 20.00723553846154,
+          "avg_time_o_ms": 0.0006259600000000002,
+          "total_duration_ms": 520.2171169999999
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "UmctsV2Bot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 34,
+          "avg_time_x_ms": 0.00040552941176470584,
+          "avg_time_o_ms": 19.019639647058824,
+          "total_duration_ms": 323.355401
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 41,
+          "avg_time_x_ms": 18.33575761904762,
+          "avg_time_o_ms": 0.00034425000000000005,
+          "total_duration_ms": 385.07345
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 0.00035838095238095236,
+          "avg_time_o_ms": 18.483726047619047,
+          "total_duration_ms": 388.186159
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 29,
+          "avg_time_x_ms": 18.85299393333333,
+          "avg_time_o_ms": 0.00036228571428571424,
+          "total_duration_ms": 282.811552
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 0.000591904761904762,
+          "avg_time_o_ms": 18.431127142857143,
+          "total_duration_ms": 387.089307
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 29,
+          "avg_time_x_ms": 17.52441206666667,
+          "avg_time_o_ms": 0.000402,
+          "total_duration_ms": 262.88596800000005
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 46,
+          "avg_time_x_ms": 0.000494,
+          "avg_time_o_ms": 18.53906726086956,
+          "total_duration_ms": 426.433402
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 37,
+          "avg_time_x_ms": 18.121576736842105,
+          "avg_time_o_ms": 0.00048033333333333326,
+          "total_duration_ms": 344.338221
+        }
+      ]
+    },
+    {
+      "bot1_name": "RandomBot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RandomBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 38,
+          "avg_time_x_ms": 0.00032147368421052636,
+          "avg_time_o_ms": 19.245589894736845,
+          "total_duration_ms": 365.687981
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 37,
+          "avg_time_x_ms": 18.090774842105265,
+          "avg_time_o_ms": 0.0004609444444444445,
+          "total_duration_ms": 343.751819
+        },
+        {
+          "player_x": "RandomBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 0.00023466666666666658,
+          "avg_time_o_ms": 20.00442214285714,
+          "total_duration_ms": 420.111873
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "RandomBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 18.892935944444442,
+          "avg_time_o_ms": 0.0004046470588235294,
+          "total_duration_ms": 340.095439
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "AlphaBetaBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 0.0011521904761904761,
+          "avg_time_o_ms": 20.00078257142857,
+          "total_duration_ms": 420.057842
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 20.000689333333334,
+          "avg_time_o_ms": 0.0007968235294117646,
+          "total_duration_ms": 360.0414
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 36,
+          "avg_time_x_ms": 0.0010724999999999999,
+          "avg_time_o_ms": 19.744990277777774,
+          "total_duration_ms": 355.44147599999997
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 20.000725444444445,
+          "avg_time_o_ms": 0.0009075882352941175,
+          "total_duration_ms": 360.044106
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "MctsBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 0.0011036190476190473,
+          "avg_time_o_ms": 20.21799738095238,
+          "total_duration_ms": 424.61866100000003
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 20.17520536363637,
+          "avg_time_o_ms": 0.0006273333333333334,
+          "total_duration_ms": 443.88063900000003
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 36,
+          "avg_time_x_ms": 0.0009194444444444444,
+          "avg_time_o_ms": 20.155522888888886,
+          "total_duration_ms": 362.827675
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 19.368896625,
+          "avg_time_o_ms": 0.0006336521739130434,
+          "total_duration_ms": 464.883617
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "HeuristicMctsBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 34,
+          "avg_time_x_ms": 0.001354294117647059,
+          "avg_time_o_ms": 20.192425529411764,
+          "total_duration_ms": 343.308566
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 33,
+          "avg_time_x_ms": 20.130293,
+          "avg_time_o_ms": 0.0009066875000000002,
+          "total_duration_ms": 342.241992
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 0.0009237619047619048,
+          "avg_time_o_ms": 20.1502649047619,
+          "total_duration_ms": 423.188514
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 20.169844416666667,
+          "avg_time_o_ms": 0.0006682173913043477,
+          "total_duration_ms": 484.10523700000005
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "OriginalUmctsBot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 0.0012050454545454543,
+          "avg_time_o_ms": 20.009150681818184,
+          "total_duration_ms": 440.23841400000003
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 20.006481124999997,
+          "avg_time_o_ms": 0.0013028260869565216,
+          "total_duration_ms": 480.200289
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 0.0013113636363636361,
+          "avg_time_o_ms": 20.004709954545454,
+          "total_duration_ms": 440.143465
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 41,
+          "avg_time_x_ms": 20.008102,
+          "avg_time_o_ms": 0.00124495,
+          "total_duration_ms": 420.206811
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "UmctsV2Bot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 38,
+          "avg_time_x_ms": 0.001424842105263158,
+          "avg_time_o_ms": 19.163069210526313,
+          "total_duration_ms": 364.144221
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 17.847405560000002,
+          "avg_time_o_ms": 0.0011104166666666667,
+          "total_duration_ms": 446.237096
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 32,
+          "avg_time_x_ms": 0.0010695625,
+          "avg_time_o_ms": 18.937979124999995,
+          "total_duration_ms": 303.03952400000003
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 39,
+          "avg_time_x_ms": 18.265770549999996,
+          "avg_time_o_ms": 0.001064578947368421,
+          "total_duration_ms": 365.354474
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 38,
+          "avg_time_x_ms": 0.0011516842105263158,
+          "avg_time_o_ms": 19.15953978947368,
+          "total_duration_ms": 364.072275
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 31,
+          "avg_time_x_ms": 17.730768562499996,
+          "avg_time_o_ms": 0.0010426,
+          "total_duration_ms": 283.725059
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 0.0010014090909090908,
+          "avg_time_o_ms": 18.428070363636365,
+          "total_duration_ms": 405.460019
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 37,
+          "avg_time_x_ms": 17.543562052631575,
+          "avg_time_o_ms": 0.0010651666666666667,
+          "total_duration_ms": 333.366363
+        }
+      ]
+    },
+    {
+      "bot1_name": "RuleBasedBot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 40,
+          "avg_time_x_ms": 0.00100545,
+          "avg_time_o_ms": 18.9214943,
+          "total_duration_ms": 378.465312
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 33,
+          "avg_time_x_ms": 18.82764688235294,
+          "avg_time_o_ms": 0.001071625,
+          "total_duration_ms": 320.099442
+        },
+        {
+          "player_x": "RuleBasedBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 40,
+          "avg_time_x_ms": 0.0008970500000000001,
+          "avg_time_o_ms": 19.4291577,
+          "total_duration_ms": 388.61506499999996
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "RuleBasedBot",
+          "outcome": "XWin",
+          "total_turns": 33,
+          "avg_time_x_ms": 18.82774005882353,
+          "avg_time_o_ms": 0.0011839999999999997,
+          "total_duration_ms": 320.105143
+        }
+      ]
+    },
+    {
+      "bot1_name": "AlphaBetaBot",
+      "bot2_name": "MctsBot",
+      "total_games": 4,
+      "bot1_wins": 4,
+      "bot2_wins": 0,
+      "draws": 0,
+      "bot1_winrate": 100.0,
+      "bot2_winrate": 0.0,
+      "game_history": [
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "MctsBot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 17.811583000000002,
+          "avg_time_o_ms": 20.185066428571425,
+          "total_duration_ms": 815.76839
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 52,
+          "avg_time_x_ms": 20.200321538461537,
+          "avg_time_o_ms": 16.643789576923073,
+          "total_duration_ms": 957.973628
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "MctsBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 20.000745500000004,
+          "avg_time_o_ms": 20.163771764705878,
+          "total_duration_ms": 702.814831
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 52,
+          "avg_time_x_ms": 20.24558765384615,
+          "avg_time_o_ms": 16.314321307692307,
+          "total_duration_ms": 950.585965
+        }
+      ]
+    },
+    {
+      "bot1_name": "AlphaBetaBot",
+      "bot2_name": "HeuristicMctsBot",
+      "total_games": 4,
+      "bot1_wins": 2,
+      "bot2_wins": 1,
+      "draws": 1,
+      "bot1_winrate": 62.5,
+      "bot2_winrate": 37.5,
+      "game_history": [
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "XWin",
+          "total_turns": 35,
+          "avg_time_x_ms": 20.000974666666668,
+          "avg_time_o_ms": 20.135936705882354,
+          "total_duration_ms": 702.3487339999999
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 46,
+          "avg_time_x_ms": 20.171961304347825,
+          "avg_time_o_ms": 16.94663095652174,
+          "total_duration_ms": 853.7471380000001
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "Draw",
+          "total_turns": 55,
+          "avg_time_x_ms": 16.153150285714283,
+          "avg_time_o_ms": 20.18098133333333,
+          "total_duration_ms": 997.200431
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "XWin",
+          "total_turns": 54,
+          "avg_time_x_ms": 20.177119185185187,
+          "avg_time_o_ms": 13.657077333333337,
+          "total_duration_ms": 913.550981
+        }
+      ]
+    },
+    {
+      "bot1_name": "AlphaBetaBot",
+      "bot2_name": "OriginalUmctsBot",
+      "total_games": 4,
+      "bot1_wins": 4,
+      "bot2_wins": 0,
+      "draws": 0,
+      "bot1_winrate": 100.0,
+      "bot2_winrate": 0.0,
+      "game_history": [
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 39,
+          "avg_time_x_ms": 19.769208199999998,
+          "avg_time_o_ms": 20.007554105263154,
+          "total_duration_ms": 775.545474
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 20.007394181818174,
+          "avg_time_o_ms": 17.54852040909091,
+          "total_duration_ms": 826.2478530000001
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 16.218415307692307,
+          "avg_time_o_ms": 20.00714964,
+          "total_duration_ms": 921.877878
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 40,
+          "avg_time_x_ms": 20.008178949999994,
+          "avg_time_o_ms": 19.57820585,
+          "total_duration_ms": 791.744926
+        }
+      ]
+    },
+    {
+      "bot1_name": "AlphaBetaBot",
+      "bot2_name": "UmctsV2Bot",
+      "total_games": 4,
+      "bot1_wins": 3,
+      "bot2_wins": 1,
+      "draws": 0,
+      "bot1_winrate": 75.0,
+      "bot2_winrate": 25.0,
+      "game_history": [
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 17.5530415,
+          "avg_time_o_ms": 20.38684242857143,
+          "total_duration_ms": 814.3196780000001
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "XWin",
+          "total_turns": 63,
+          "avg_time_x_ms": 17.33833453125,
+          "avg_time_o_ms": 16.534501387096775,
+          "total_duration_ms": 1067.430296
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 17.203862291666667,
+          "avg_time_o_ms": 20.330644260869565,
+          "total_duration_ms": 880.526962
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 20.400537500000002,
+          "avg_time_o_ms": 16.229117166666665,
+          "total_duration_ms": 879.14195
+        }
+      ]
+    },
+    {
+      "bot1_name": "AlphaBetaBot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 4,
+      "bot2_wins": 0,
+      "draws": 0,
+      "bot1_winrate": 100.0,
+      "bot2_winrate": 0.0,
+      "game_history": [
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 45,
+          "avg_time_x_ms": 16.993559565217396,
+          "avg_time_o_ms": 20.383821,
+          "total_duration_ms": 839.323174
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 38,
+          "avg_time_x_ms": 19.311066684210527,
+          "avg_time_o_ms": 18.338693105263157,
+          "total_duration_ms": 715.367118
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 16.799097125,
+          "avg_time_o_ms": 20.41679791304347,
+          "total_duration_ms": 872.799871
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 19.575350000000004,
+          "avg_time_o_ms": 16.921400333333334,
+          "total_duration_ms": 875.9553410000001
+        }
+      ]
+    },
+    {
+      "bot1_name": "AlphaBetaBot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 2,
+      "bot2_wins": 2,
+      "draws": 0,
+      "bot1_winrate": 50.0,
+      "bot2_winrate": 50.0,
+      "game_history": [
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 54,
+          "avg_time_x_ms": 16.431142222222224,
+          "avg_time_o_ms": 15.515845925925921,
+          "total_duration_ms": 862.5937729999999
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 53,
+          "avg_time_x_ms": 14.583522407407408,
+          "avg_time_o_ms": 15.423316230769228,
+          "total_duration_ms": 794.7897280000001
+        },
+        {
+          "player_x": "AlphaBetaBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 54,
+          "avg_time_x_ms": 16.431458555555555,
+          "avg_time_o_ms": 15.51857803703703,
+          "total_duration_ms": 862.681167
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "AlphaBetaBot",
+          "outcome": "OWin",
+          "total_turns": 53,
+          "avg_time_x_ms": 14.578327148148142,
+          "avg_time_o_ms": 15.419065038461536,
+          "total_duration_ms": 794.5367719999999
+        }
+      ]
+    },
+    {
+      "bot1_name": "MctsBot",
+      "bot2_name": "HeuristicMctsBot",
+      "total_games": 4,
+      "bot1_wins": 3,
+      "bot2_wins": 1,
+      "draws": 0,
+      "bot1_winrate": 75.0,
+      "bot2_winrate": 25.0,
+      "game_history": [
+        {
+          "player_x": "MctsBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 20.214356520000003,
+          "avg_time_o_ms": 20.180952291666667,
+          "total_duration_ms": 989.721087
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 20.172849916666667,
+          "avg_time_o_ms": 20.200156,
+          "total_duration_ms": 968.972046
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 50,
+          "avg_time_x_ms": 20.19680816,
+          "avg_time_o_ms": 20.16220712,
+          "total_duration_ms": 1008.9982520000001
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 50,
+          "avg_time_x_ms": 20.19376612,
+          "avg_time_o_ms": 20.21863956,
+          "total_duration_ms": 1010.3326999999999
+        }
+      ]
+    },
+    {
+      "bot1_name": "MctsBot",
+      "bot2_name": "OriginalUmctsBot",
+      "total_games": 4,
+      "bot1_wins": 4,
+      "bot2_wins": 0,
+      "draws": 0,
+      "bot1_winrate": 100.0,
+      "bot2_winrate": 0.0,
+      "game_history": [
+        {
+          "player_x": "MctsBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 20.248218,
+          "avg_time_o_ms": 20.00719708,
+          "total_duration_ms": 1026.652237
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 58,
+          "avg_time_x_ms": 20.00655827586207,
+          "avg_time_o_ms": 19.523760448275866,
+          "total_duration_ms": 1146.398982
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 20.218258730769225,
+          "avg_time_o_ms": 20.00769752,
+          "total_duration_ms": 1025.885867
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 20.006990428571427,
+          "avg_time_o_ms": 20.210493714285718,
+          "total_duration_ms": 844.583668
+        }
+      ]
+    },
+    {
+      "bot1_name": "MctsBot",
+      "bot2_name": "UmctsV2Bot",
+      "total_games": 4,
+      "bot1_wins": 2,
+      "bot2_wins": 2,
+      "draws": 0,
+      "bot1_winrate": 50.0,
+      "bot2_winrate": 50.0,
+      "game_history": [
+        {
+          "player_x": "MctsBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 57,
+          "avg_time_x_ms": 19.537587689655176,
+          "avg_time_o_ms": 20.285446714285712,
+          "total_duration_ms": 1134.6185950000001
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "MctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 18.735140080000004,
+          "avg_time_o_ms": 20.218134666666668,
+          "total_duration_ms": 953.645314
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 52,
+          "avg_time_x_ms": 20.254254653846154,
+          "avg_time_o_ms": 19.55559523076923,
+          "total_duration_ms": 1035.087919
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "MctsBot",
+          "outcome": "XWin",
+          "total_turns": 53,
+          "avg_time_x_ms": 17.148113555555554,
+          "avg_time_o_ms": 20.22726046153846,
+          "total_duration_ms": 988.940931
+        }
+      ]
+    },
+    {
+      "bot1_name": "MctsBot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 2,
+      "draws": 2,
+      "bot1_winrate": 25.0,
+      "bot2_winrate": 75.0,
+      "game_history": [
+        {
+          "player_x": "MctsBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 40,
+          "avg_time_x_ms": 20.192828749999997,
+          "avg_time_o_ms": 17.539403150000002,
+          "total_duration_ms": 754.664474
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "MctsBot",
+          "outcome": "Draw",
+          "total_turns": 47,
+          "avg_time_x_ms": 18.64909616666667,
+          "avg_time_o_ms": 20.220707869565217,
+          "total_duration_ms": 912.6823880000001
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 54,
+          "avg_time_x_ms": 19.492320999999997,
+          "avg_time_o_ms": 17.447559592592594,
+          "total_duration_ms": 997.411919
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "MctsBot",
+          "outcome": "Draw",
+          "total_turns": 62,
+          "avg_time_x_ms": 19.69972409677419,
+          "avg_time_o_ms": 18.932383935483866,
+          "total_duration_ms": 1197.636446
+        }
+      ]
+    },
+    {
+      "bot1_name": "MctsBot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 1,
+      "bot2_wins": 3,
+      "draws": 0,
+      "bot1_winrate": 25.0,
+      "bot2_winrate": 75.0,
+      "game_history": [
+        {
+          "player_x": "MctsBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 20.203229285714286,
+          "avg_time_o_ms": 18.40284023809524,
+          "total_duration_ms": 810.754679
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "MctsBot",
+          "outcome": "XWin",
+          "total_turns": 39,
+          "avg_time_x_ms": 17.73186375,
+          "avg_time_o_ms": 20.188122631578945,
+          "total_duration_ms": 738.230191
+        },
+        {
+          "player_x": "MctsBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 20.181700772727275,
+          "avg_time_o_ms": 18.249714000000008,
+          "total_duration_ms": 845.514478
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "MctsBot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 16.00574879166667,
+          "avg_time_o_ms": 20.218820916666665,
+          "total_duration_ms": 869.411965
+        }
+      ]
+    },
+    {
+      "bot1_name": "HeuristicMctsBot",
+      "bot2_name": "OriginalUmctsBot",
+      "total_games": 4,
+      "bot1_wins": 4,
+      "bot2_wins": 0,
+      "draws": 0,
+      "bot1_winrate": 100.0,
+      "bot2_winrate": 0.0,
+      "game_history": [
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 20.195096,
+          "avg_time_o_ms": 20.00634395833333,
+          "total_duration_ms": 985.0508100000001
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 46,
+          "avg_time_x_ms": 20.00648386956522,
+          "avg_time_o_ms": 20.17458160869565,
+          "total_duration_ms": 924.1813159999999
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 20.153230239999992,
+          "avg_time_o_ms": 20.006490791666668,
+          "total_duration_ms": 984.003092
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 20.00716104545454,
+          "avg_time_o_ms": 20.22820640909091,
+          "total_duration_ms": 885.195846
+        }
+      ]
+    },
+    {
+      "bot1_name": "HeuristicMctsBot",
+      "bot2_name": "UmctsV2Bot",
+      "total_games": 4,
+      "bot1_wins": 1,
+      "bot2_wins": 3,
+      "draws": 0,
+      "bot1_winrate": 25.0,
+      "bot2_winrate": 75.0,
+      "game_history": [
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 20.15337795454545,
+          "avg_time_o_ms": 20.27255704761905,
+          "total_duration_ms": 869.121489
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 16.778098863636362,
+          "avg_time_o_ms": 20.167687142857147,
+          "total_duration_ms": 792.664634
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 42,
+          "avg_time_x_ms": 20.157519999999995,
+          "avg_time_o_ms": 17.510828619047615,
+          "total_duration_ms": 791.057644
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 16.191229318181822,
+          "avg_time_o_ms": 20.14103852380953,
+          "total_duration_ms": 779.189893
+        }
+      ]
+    },
+    {
+      "bot1_name": "HeuristicMctsBot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 3,
+      "bot2_wins": 0,
+      "draws": 1,
+      "bot1_winrate": 87.5,
+      "bot2_winrate": 12.5,
+      "game_history": [
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "Draw",
+          "total_turns": 55,
+          "avg_time_x_ms": 20.181103285714283,
+          "avg_time_o_ms": 20.383976407407406,
+          "total_duration_ms": 1115.4772950000001
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 19.46216491666667,
+          "avg_time_o_ms": 20.173632333333334,
+          "total_duration_ms": 951.2895169999999
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 20.199348999999998,
+          "avg_time_o_ms": 20.355612291666667,
+          "total_duration_ms": 993.555111
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 52,
+          "avg_time_x_ms": 19.507518115384617,
+          "avg_time_o_ms": 20.205376769230767,
+          "total_duration_ms": 1032.56608
+        }
+      ]
+    },
+    {
+      "bot1_name": "HeuristicMctsBot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 2,
+      "bot2_wins": 2,
+      "draws": 0,
+      "bot1_winrate": 50.0,
+      "bot2_winrate": 50.0,
+      "game_history": [
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 46,
+          "avg_time_x_ms": 20.17454495652174,
+          "avg_time_o_ms": 17.044559347826088,
+          "total_duration_ms": 856.064343
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "XWin",
+          "total_turns": 55,
+          "avg_time_x_ms": 15.994442035714284,
+          "avg_time_o_ms": 19.434693999999993,
+          "total_duration_ms": 972.606666
+        },
+        {
+          "player_x": "HeuristicMctsBot",
+          "player_o": "book_alphabeta",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 20.1418075,
+          "avg_time_o_ms": 16.561359260869562,
+          "total_duration_ms": 864.335526
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "HeuristicMctsBot",
+          "outcome": "OWin",
+          "total_turns": 57,
+          "avg_time_x_ms": 13.028798586206898,
+          "avg_time_o_ms": 19.434899071428568,
+          "total_duration_ms": 922.037599
+        }
+      ]
+    },
+    {
+      "bot1_name": "OriginalUmctsBot",
+      "bot2_name": "UmctsV2Bot",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 40,
+          "avg_time_x_ms": 20.0074254,
+          "avg_time_o_ms": 18.53018145,
+          "total_duration_ms": 770.767114
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 18.984183319999996,
+          "avg_time_o_ms": 20.00541325,
+          "total_duration_ms": 954.7577550000001
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "UmctsV2Bot",
+          "outcome": "OWin",
+          "total_turns": 48,
+          "avg_time_x_ms": 20.00684704166667,
+          "avg_time_o_ms": 19.741298166666667,
+          "total_duration_ms": 953.978621
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 17.513177399999996,
+          "avg_time_o_ms": 20.007413625000005,
+          "total_duration_ms": 918.030428
+        }
+      ]
+    },
+    {
+      "bot1_name": "OriginalUmctsBot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 20.009090954545453,
+          "avg_time_o_ms": 19.662731318181823,
+          "total_duration_ms": 872.7996019999999
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 47,
+          "avg_time_x_ms": 17.595558791666665,
+          "avg_time_o_ms": 20.006945695652178,
+          "total_duration_ms": 882.472489
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "book_umcts_v2",
+          "outcome": "OWin",
+          "total_turns": 40,
+          "avg_time_x_ms": 20.0102171,
+          "avg_time_o_ms": 18.4799654,
+          "total_duration_ms": 769.818942
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 53,
+          "avg_time_x_ms": 17.07044114814815,
+          "avg_time_o_ms": 20.007423615384614,
+          "total_duration_ms": 981.1154560000001
+        }
+      ]
+    },
+    {
+      "bot1_name": "OriginalUmctsBot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 34,
+          "avg_time_x_ms": 20.008302588235292,
+          "avg_time_o_ms": 20.005498529411767,
+          "total_duration_ms": 680.249667
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 49,
+          "avg_time_x_ms": 16.819588399999997,
+          "avg_time_o_ms": 20.006340333333334,
+          "total_duration_ms": 900.660247
+        },
+        {
+          "player_x": "OriginalUmctsBot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 24,
+          "avg_time_x_ms": 20.009860083333333,
+          "avg_time_o_ms": 18.252277583333335,
+          "total_duration_ms": 459.155422
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "OriginalUmctsBot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 15.542030038461537,
+          "avg_time_o_ms": 20.006972719999993,
+          "total_duration_ms": 904.2881739999999
+        }
+      ]
+    },
+    {
+      "bot1_name": "UmctsV2Bot",
+      "bot2_name": "book_umcts_v2",
+      "total_games": 4,
+      "bot1_wins": 2,
+      "bot2_wins": 2,
+      "draws": 0,
+      "bot1_winrate": 50.0,
+      "bot2_winrate": 50.0,
+      "game_history": [
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 17.00077922727273,
+          "avg_time_o_ms": 20.42829214285714,
+          "total_duration_ms": 803.042856
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 39,
+          "avg_time_x_ms": 16.66652125,
+          "avg_time_o_ms": 20.39715668421053,
+          "total_duration_ms": 720.9012889999999
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 54,
+          "avg_time_x_ms": 16.098622888888887,
+          "avg_time_o_ms": 20.46459874074074,
+          "total_duration_ms": 987.243732
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 16.856455272727274,
+          "avg_time_o_ms": 19.48682438095238,
+          "total_duration_ms": 780.093731
+        }
+      ]
+    },
+    {
+      "bot1_name": "UmctsV2Bot",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 1,
+      "bot2_wins": 2,
+      "draws": 1,
+      "bot1_winrate": 37.5,
+      "bot2_winrate": 62.5,
+      "game_history": [
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "book_alphabeta",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 17.092887454545455,
+          "avg_time_o_ms": 16.60339780952381,
+          "total_duration_ms": 724.737667
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "UmctsV2Bot",
+          "outcome": "XWin",
+          "total_turns": 51,
+          "avg_time_x_ms": 15.440923384615381,
+          "avg_time_o_ms": 20.343347159999997,
+          "total_duration_ms": 910.080208
+        },
+        {
+          "player_x": "UmctsV2Bot",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 50,
+          "avg_time_x_ms": 20.390923239999996,
+          "avg_time_o_ms": 15.825811359999998,
+          "total_duration_ms": 905.447824
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "UmctsV2Bot",
+          "outcome": "Draw",
+          "total_turns": 50,
+          "avg_time_x_ms": 15.265637639999992,
+          "avg_time_o_ms": 19.581489,
+          "total_duration_ms": 871.202049
+        }
+      ]
+    },
+    {
+      "bot1_name": "book_umcts_v2",
+      "bot2_name": "book_alphabeta",
+      "total_games": 4,
+      "bot1_wins": 0,
+      "bot2_wins": 4,
+      "draws": 0,
+      "bot1_winrate": 0.0,
+      "bot2_winrate": 100.0,
+      "game_history": [
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 44,
+          "avg_time_x_ms": 19.45063840909091,
+          "avg_time_o_ms": 17.90791486363636,
+          "total_duration_ms": 821.914259
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 45,
+          "avg_time_x_ms": 15.794350217391305,
+          "avg_time_o_ms": 20.385503818181817,
+          "total_duration_ms": 811.778552
+        },
+        {
+          "player_x": "book_umcts_v2",
+          "player_o": "book_alphabeta",
+          "outcome": "OWin",
+          "total_turns": 46,
+          "avg_time_x_ms": 19.559692130434783,
+          "avg_time_o_ms": 17.907909043478266,
+          "total_duration_ms": 861.781376
+        },
+        {
+          "player_x": "book_alphabeta",
+          "player_o": "book_umcts_v2",
+          "outcome": "XWin",
+          "total_turns": 43,
+          "avg_time_x_ms": 15.284428363636362,
+          "avg_time_o_ms": 20.406778761904764,
+          "total_duration_ms": 764.826751
+        }
+      ]
+    }
+  ]
+}

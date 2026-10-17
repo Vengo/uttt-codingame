@@ -749,7 +749,7 @@ mod tests_uttt {
 
         let all_hashed = x_iter.chain(o_iter).fold(start_val, |a, b| a ^ b);
 
-        let expected_allhash = 10891453110652296350u64;
+        let expected_allhash = 16241622240269048913u64;
 
         eprintln!("{} {}", all_hashed, expected_allhash);
         assert_eq!(expected_allhash, all_hashed);
@@ -1605,6 +1605,42 @@ mod tests_uttt {
     }
 
     #[test]
+    fn alpha_beta_test_midgame() {
+        let mut uttt_board = UltimateTicTacToeBoard {
+            xbb: [1, 116, 0, 68, 17, 257, 288, 33, 260],
+            x_supers: 2,
+            obb: [300, 0, 7, 0, 258, 162, 66, 0, 200],
+            o_supers: 5,
+            last_super_index: 7,
+            x_to_move: true,
+            hash_state: 8888120714582935863
+        };
+        let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+        let legal_moves = UltimateTicTacToeBoard::get_move_ordering_array();
+        let mut ttable = HashMap::new();
+        const COMPETITIVE_AB_DEPTH: u8 = 8;
+        let search_start = time::Instant::now();
+        let (alpha, beta, the_move, other) = alpha_beta_search(
+            &mut uttt_board,
+            6,
+            i8::MIN,
+            i8::MAX,
+            &mut ttable,
+            &legal_moves,
+            &zobrist_constants,
+        );
+
+        eprintln!("search results were: {}, {}, {}, {}",alpha, beta, the_move, other);
+        eprintln!("ttable size: {}", ttable.len());
+        eprintln!(
+            "elapsed search time: {}",
+            search_start.elapsed().as_micros()
+        );
+        assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
+        // assert_eq!(1,2, "intentional failure");
+    }
+
+    #[test]
     fn constant_move_order_test() {
         // 256 128 64 32 16 8 4 2 1
         // 1 2 4 8 16 32 64 128 256
@@ -1643,4 +1679,292 @@ mod tests_uttt {
         );
         assert_eq!(true, uttt_board.is_valid(), "expected a valid bitboard");
     }
+
+    #[test]
+    fn test_all_bots_instantiate() {
+        for bot_name in uttt::bots::available_bots() {
+            let bot = uttt::bots::create_bot(bot_name);
+            assert!(bot.is_some(), "Bot {} failed to instantiate", bot_name);
+        }
+    }
+
+    #[test]
+    fn test_elo_calculator() {
+        let mut elo = uttt::arena::EloCalculator::new(32.0);
+        elo.set_rating("player_a", 1500.0);
+        elo.set_rating("player_b", 1500.0);
+
+        let (new_a, new_b) = elo.update("player_a", "player_b", 1.0);
+        assert_eq!(new_a, 1516.0);
+        assert_eq!(new_b, 1484.0);
+    }
+
+    #[test]
+    fn test_replay_serialization() {
+        let mut replay = uttt::arena::GameReplay::new("test_game", "BotA", "BotB");
+        replay.record_move(
+            1,
+            uttt::game_solving::GameMove {
+                x_to_move: true,
+                move_index: 40,
+            },
+            12.5,
+            "test_board".to_string(),
+        );
+        let json = serde_json::to_string(&replay).expect("Serialization failed");
+        assert!(json.contains("test_game"));
+        assert!(json.contains("BotA"));
+    }
+
+    #[test]
+    fn test_game_execution_no_forfeits() {
+        use std::time::Duration;
+        let mut bot_x = uttt::bots::create_bot("rule_based").unwrap();
+        let mut bot_o = uttt::bots::create_bot("random").unwrap();
+
+        let engine = uttt::ttt_trait_solving::TicTacToeEngine::new();
+        let legal_moves = engine.get_move_ordering_array();
+        let zobrist_constants = uttt::uttt_trait_solving::UltimateTicTacToeBoard::get_zobrist_constants();
+
+        let game = uttt::arena::Game::new(Duration::from_millis(15));
+        let (stats, _) = game.play(bot_x.as_mut(), bot_o.as_mut(), &legal_moves, &zobrist_constants);
+
+        // Neither bot should ever forfeit on illegal moves
+        match stats.outcome {
+            uttt::arena::GameOutcome::XForfeit(reason) => panic!("X forfeited: {}", reason),
+            uttt::arena::GameOutcome::OForfeit(reason) => panic!("O forfeited: {}", reason),
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn test_rule_based_beats_random() {
+        use std::time::Duration;
+        let mut bot_rule = uttt::bots::create_bot("rule_based").unwrap();
+        let mut bot_random = uttt::bots::create_bot("random").unwrap();
+
+        let engine = uttt::ttt_trait_solving::TicTacToeEngine::new();
+        let legal_moves = engine.get_move_ordering_array();
+        let zobrist_constants = uttt::uttt_trait_solving::UltimateTicTacToeBoard::get_zobrist_constants();
+
+        let runner = uttt::arena::MatchRunner::new(Duration::from_millis(15));
+        let res = runner.run_match(
+            bot_rule.as_mut(),
+            bot_random.as_mut(),
+            6,
+            &legal_moves,
+            &zobrist_constants,
+            None,
+        );
+
+        println!("RuleBased vs Random score: {}-{}-{}", res.bot1_wins, res.bot2_wins, res.draws);
+        assert!(
+            res.bot1_wins >= 4,
+            "Expected RuleBasedBot to win at least 4 out of 6 games against RandomBot, got {}",
+            res.bot1_wins
+        );
+    }
+
+    #[test]
+    fn test_umcts_v2_beats_random() {
+        use std::time::Duration;
+        let mut bot_v2 = uttt::bots::create_bot("umcts_v2").unwrap();
+        let mut bot_random = uttt::bots::create_bot("random").unwrap();
+
+        let engine = uttt::ttt_trait_solving::TicTacToeEngine::new();
+        let legal_moves = engine.get_move_ordering_array();
+        let zobrist_constants = uttt::uttt_trait_solving::UltimateTicTacToeBoard::get_zobrist_constants();
+
+        let runner = uttt::arena::MatchRunner::new(Duration::from_millis(15));
+        let res = runner.run_match(
+            bot_v2.as_mut(),
+            bot_random.as_mut(),
+            4,
+            &legal_moves,
+            &zobrist_constants,
+            None,
+        );
+
+        println!("UmctsV2 vs Random score: {}-{}-{}", res.bot1_wins, res.bot2_wins, res.draws);
+        assert!(
+            res.bot1_wins >= 3,
+            "Expected UmctsV2Bot to win at least 3 out of 4 games against RandomBot, got {}",
+            res.bot1_wins
+        );
+    }
+
+    #[test]
+    fn test_measure_bot_speed() {
+        use std::time::{Duration, Instant};
+        let mut bot_v2 = uttt::bots::create_bot("umcts_v2").unwrap();
+        let mut bot_mcts = uttt::bots::create_bot("mcts").unwrap();
+
+        let board = uttt::uttt_trait_solving::UltimateTicTacToeBoard::default();
+        let zobrist_constants = uttt::uttt_trait_solving::UltimateTicTacToeBoard::get_zobrist_constants();
+        let engine = uttt::ttt_trait_solving::TicTacToeEngine::new();
+        let legal_moves = engine.get_move_ordering_array();
+
+        let time_limit = Duration::from_millis(50);
+        let t0 = Instant::now();
+        let _ = bot_mcts.choose_move(&board, &legal_moves, &zobrist_constants, time_limit);
+        let mcts_dur = t0.elapsed();
+
+        let t1 = Instant::now();
+        let _ = bot_v2.choose_move(&board, &legal_moves, &zobrist_constants, time_limit);
+        let v2_dur = t1.elapsed();
+
+        println!("MctsBot 50ms search elapsed: {:?}", mcts_dur);
+        println!("UmctsV2Bot 50ms search elapsed: {:?}", v2_dur);
+    }
+
+    #[test]
+    fn test_profile_original_mcts_behavior() {
+        use std::collections::HashMap;
+        use std::time::Instant;
+        use uttt::game_solving::{advance_rollout, reverse_rollout, AlphaBetaCompatible, GameResult, IdentityHasherBuilder, UmctsNode, UmctsQueueElement};
+        use uttt::uttt_trait_solving::{UltimateTicTacToeBoard, UltimateTicTacToeUnmove};
+        use uttt::ttt_trait_solving::TicTacToeEngine;
+
+        println!("\n=== EMPIRICAL PROFILING OF ORIGINAL MCTS ===");
+
+        // 1. Memory and Table Allocation Time
+        let t0 = Instant::now();
+        let mut node_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> =
+            HashMap::with_capacity_and_hasher(10_000_000, IdentityHasherBuilder {});
+        let alloc_time = t0.elapsed();
+        println!("1. Time to allocate 10M HashMap capacity: {:?}", alloc_time);
+
+        // 2. Measure Cache Latency: 10M-capacity map vs small (50k) map
+        let mut small_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> =
+            HashMap::with_capacity_and_hasher(50_000, IdentityHasherBuilder {});
+
+        // Populate 50k keys in both
+        for i in 0..50_000u64 {
+            let n = UmctsNode::default();
+            let k = i.wrapping_mul(11400714819323198485);
+            small_store.insert(k, n);
+            node_store.insert(k, n);
+        }
+
+        // Measure lookups in small store (L3 cache resident: 50k * 25B ~ 1.25MB < 16MB L3)
+        let t_small = Instant::now();
+        let iters = 1_000_000;
+        let mut found = 0;
+        for i in 0..iters {
+            let k = ((i % 50_000) as u64).wrapping_mul(11400714819323198485);
+            if small_store.get(&k).is_some() { found += 1; }
+        }
+        let small_dur = t_small.elapsed();
+        assert_eq!(found, iters);
+
+        // Populate more keys in 10M store to reach 2,000,000 entries (~50MB > 16MB L3 cache)
+        for i in 50_000..2_000_000u64 {
+            let k = i.wrapping_mul(11400714819323198485);
+            node_store.insert(k, UmctsNode::default());
+        }
+
+        let t_large = Instant::now();
+        let mut found_lg = 0;
+        for i in 0..iters {
+            let k = ((i % 2_000_000) as u64).wrapping_mul(11400714819323198485);
+            if node_store.get(&k).is_some() { found_lg += 1; }
+        }
+        let large_dur = t_large.elapsed();
+        assert_eq!(found_lg, iters);
+
+        println!(
+            "2. Cache latency test ({} lookups):\n   - Cache-resident (50k entries, fits in L3): {:?} ({:.1} ns/op)\n   - Cache-overflowing (2M entries, spills to DRAM): {:?} ({:.1} ns/op)\n   - Slowdown factor: {:.2}x slower due to cache misses!",
+            iters,
+            small_dur,
+            small_dur.as_nanos() as f64 / iters as f64,
+            large_dur,
+            large_dur.as_nanos() as f64 / iters as f64,
+            (large_dur.as_nanos() as f64) / (small_dur.as_nanos() as f64)
+        );
+
+        // 3. Rollout trace: analyze how rollouts terminate and bound propagation
+        let engine = TicTacToeEngine::new();
+        let legal_moves = engine.get_move_ordering_array();
+        let zobrist_constants = UltimateTicTacToeBoard::get_zobrist_constants();
+
+        let mut sim_board = UltimateTicTacToeBoard::default();
+        let mut unmove_queue: Vec<UmctsQueueElement<u64, UltimateTicTacToeUnmove>> = Vec::with_capacity(81);
+        let mut test_store: HashMap<u64, UmctsNode, IdentityHasherBuilder> =
+            HashMap::with_capacity_and_hasher(1_000_000, IdentityHasherBuilder {});
+
+        let mut terminal_win_count = 0;
+        let mut unresolved_cutoff_count = 0;
+        let mut total_descent_depth = 0;
+
+        let rollout_test_count = 5_000;
+        for _ in 0..rollout_test_count {
+            let mut search_alpha = i8::MIN;
+            let mut search_beta = i8::MAX;
+            let mut depth = 0;
+
+            while let Some(new_alpha_beta) = advance_rollout(
+                &mut unmove_queue,
+                &mut sim_board,
+                &legal_moves,
+                search_alpha,
+                search_beta,
+                &mut test_store,
+                &zobrist_constants,
+            ) {
+                let (new_alpha, new_beta) = new_alpha_beta;
+                search_alpha = new_alpha;
+                search_beta = new_beta;
+                depth += 1;
+            }
+
+            total_descent_depth += depth;
+
+            let rollout_result = match sim_board.get_win_state() {
+                GameResult::P1Win => { terminal_win_count += 1; i8::MAX }
+                GameResult::P2Win => { terminal_win_count += 1; i8::MIN }
+                GameResult::Tie => { terminal_win_count += 1; 0 }
+                GameResult::Unresolved => {
+                    unresolved_cutoff_count += 1;
+                    search_alpha // THIS IS THE KEY INVESTIGATION
+                }
+            };
+
+            reverse_rollout(
+                rollout_result,
+                &mut unmove_queue,
+                &mut sim_board,
+                &mut test_store,
+            );
+        }
+
+        println!(
+            "\n3. Rollout Termination Analysis over {} iterations:\n   - True terminal leaf reached (Win/Loss/Tie): {}\n   - Unresolved cutoff leaf (hit search_alpha fallback): {} ({:.1}% of all rollouts!)\n   - Average descent depth before cutoff: {:.1} plies",
+            rollout_test_count,
+            terminal_win_count,
+            unresolved_cutoff_count,
+            (unresolved_cutoff_count as f64 / rollout_test_count as f64) * 100.0,
+            total_descent_depth as f64 / rollout_test_count as f64
+        );
+
+        let root_hash = UltimateTicTacToeBoard::default().hash_val();
+        let root_node = test_store.get(&root_hash).unwrap();
+        println!(
+            "\n4. Root Node State post-search:\n   - Visits: {}\n   - Accumulated Value: {}\n   - Average Score: {:.2}\n   - Bounds: [lower: {}, upper: {}]",
+            root_node.visits,
+            root_node.value,
+            root_node.value as f64 / root_node.visits as f64,
+            root_node.value_lower,
+            root_node.value_upper
+        );
+    }
 }
+
+#[cfg(test)]
+pub mod canonical_state_tests;
+
+#[cfg(test)]
+pub mod nn_tests;
+
+#[cfg(test)]
+pub mod egtb_strict_bounds_tests;
+

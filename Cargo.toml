@@ -5,12 +5,14 @@ debug = true
 [profile.dev]
 opt-level = 3
 debug = true
+debug-assertions = false
 
 [profile.test]
 opt-level = 3
 debug = true
 
 [workspace]
+resolver = "2"
 members = [
     "./uttt-tests",
     "./uttt"

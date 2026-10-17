@@ -1,0 +1,12 @@
+{
+  "active": true,
+  "book_entries": 113983,
+  "current_cycle": 58,
+  "egtb_solved": 14528,
+  "elapsed_secs": 14718,
+  "gpu": "NVIDIA GeForce RTX 5060 Ti",
+  "last_update": "SystemTime { tv_sec: 1791655537, tv_nsec: 84249767 }",
+  "self_play_games": 232,
+  "total_cycles": 2000,
+  "zfs_storage_path": "/my-zraid/uttt"
+}

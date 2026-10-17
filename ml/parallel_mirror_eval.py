@@ -53,6 +53,25 @@ class PairedPosition:
     num_legal_moves: int
 
 
+def compute_regression_status(
+    win_rate: float,
+    margin: float,
+    champ_double_wins: int,
+    decisive_pairs: int,
+) -> Tuple[float, bool]:
+    """
+    Determines whether Challenger suffered a statistically significant regression against Champion:
+    - regression_p_value = P(X >= champ_double_wins | decisive_pairs, p=0.5)
+    - regressed is True iff (win_rate < 0.50 and regression_p_value < 0.05) or ((win_rate + margin) < 0.50)
+    """
+    regression_p_value = binomial_p_value(champ_double_wins, decisive_pairs, p=0.5)
+    regressed = bool(
+        (win_rate < 0.50 and regression_p_value < 0.05)
+        or ((win_rate + margin) < 0.50)
+    )
+    return float(regression_p_value), regressed
+
+
 @dataclass
 class TournamentResult:
     total_pairs: int
@@ -74,7 +93,12 @@ class TournamentResult:
     decisive_win_rate: float = 0.5
     double_win_ratio: float = 1.0
     decisive_p_value: float = 1.0
+    regression_p_value: float = 1.0
+    regressed: bool = False
     promotion_reason: str = "Rejected"
+
+
+MirrorTournamentResult = TournamentResult
 
 
 def generate_candidate_positions(
@@ -372,6 +396,12 @@ def run_parallel_mirror_tournament(
     decisive_wr = (chal_double_wins / decisive_pairs) if decisive_pairs > 0 else 0.5
     dw_ratio = round(chal_double_wins / max(1, champ_double_wins), 2)
     p_val = binomial_p_value(chal_double_wins, decisive_pairs, p=0.5)
+    regression_p_val, regressed = compute_regression_status(
+        win_rate=float(win_rate),
+        margin=float(margin),
+        champ_double_wins=champ_double_wins,
+        decisive_pairs=decisive_pairs,
+    )
 
     # Dual-gate promotion check
     gate_a_passed = win_rate >= 0.55
@@ -383,8 +413,12 @@ def run_parallel_mirror_tournament(
     elif gate_b_passed:
         promotion_reason = (f"Gate B Passed: Decisive Win Rate {decisive_wr*100:.2f}% >= 56.5% "
                             f"(Ratio {dw_ratio}:1, p={p_val:.4f} < 0.05) with Overall {win_rate*100:.2f}% >= 52.5%")
+    elif regressed:
+        promotion_reason = (f"Rejected (Regressed): Win Rate {win_rate*100:.2f}%, "
+                            f"Decisive WR {decisive_wr*100:.2f}%, reg_p={regression_p_val:.4f} < 0.05")
     else:
-        promotion_reason = f"Rejected: Win Rate {win_rate*100:.2f}%, Decisive WR {decisive_wr*100:.2f}%, p={p_val:.4f}"
+        promotion_reason = (f"Rejected (Persisted): Win Rate {win_rate*100:.2f}%, "
+                            f"Decisive WR {decisive_wr*100:.2f}%, p={p_val:.4f}, reg_p={regression_p_val:.4f}")
 
     return TournamentResult(
         total_pairs=num_pairs,
@@ -406,6 +440,8 @@ def run_parallel_mirror_tournament(
         decisive_win_rate=float(decisive_wr),
         double_win_ratio=float(dw_ratio),
         decisive_p_value=float(p_val),
+        regression_p_value=float(regression_p_val),
+        regressed=bool(regressed),
         promotion_reason=promotion_reason,
     )
 
@@ -431,6 +467,36 @@ def load_eval_model(path: str, device: str):
     model.load_state_dict(state_dict)
     model.eval()
     return model
+
+
+def test_regression_detection():
+    """Unit test for Challenger regression vs persistence detection."""
+    # 1. Near-miss Challenger lead (e.g. 184 vs 153 double wins, win_rate=0.5161): not regressed
+    reg_p1, reg1 = compute_regression_status(
+        win_rate=0.5161,
+        margin=0.0216,
+        champ_double_wins=153,
+        decisive_pairs=337,
+    )
+    assert not reg1, f"Expected regressed=False on challenger lead, got reg_p={reg_p1}"
+
+    # 2. Statistical parity / slight noise (e.g. 140 vs 160 double wins, reg_p=0.136 >= 0.05): not regressed
+    reg_p2, reg2 = compute_regression_status(
+        win_rate=0.4902,
+        margin=0.0216,
+        champ_double_wins=160,
+        decisive_pairs=300,
+    )
+    assert reg_p2 >= 0.05 and not reg2, f"Expected regressed=False on parity noise, got reg_p={reg_p2}, reg={reg2}"
+
+    # 3. Statistically significant regression (e.g. 110 vs 170 double wins, reg_p < 0.001): regressed
+    reg_p3, reg3 = compute_regression_status(
+        win_rate=0.4707,
+        margin=0.0216,
+        champ_double_wins=170,
+        decisive_pairs=280,
+    )
+    assert reg_p3 < 0.001 and reg3, f"Expected regressed=True on significant regression, got reg_p={reg_p3}, reg={reg3}"
 
 
 if __name__ == "__main__":

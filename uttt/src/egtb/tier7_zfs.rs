@@ -7,7 +7,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use memmap2::Mmap;
@@ -764,32 +764,83 @@ impl Tier7ZfsSolver {
     }
 }
 
+/// Precomputes the D4 symmetry transformation lookup table for all 11,125 micro states
+pub fn build_sym_micro_id_table(
+    micro: &MicroSubboardTable,
+) -> Box<[[u16; TOTAL_MICRO_STATES]; 8]> {
+    let mut table = Box::new([[0u16; TOTAL_MICRO_STATES]; 8]);
+    for &sym in &ALL_SYMMETRIES {
+        let sym_idx = sym as usize;
+        for id in 0..TOTAL_MICRO_STATES {
+            let (x, o) = micro.states[id];
+            let tx = sym.transform_9bit(x);
+            let to = sym.transform_9bit(o);
+            let tid = micro.to_id[((tx as usize) << 9) | (to as usize)];
+            debug_assert!((tid as usize) < TOTAL_MICRO_STATES);
+            table[sym_idx][id] = tid;
+        }
+    }
+    table
+}
+
 /// Zero-copy memory-mapped prober for the exhaustive Tier 7 ZFS tablebase
 pub struct Tier7ZfsProber {
     pub dir: PathBuf,
     pub micro: MicroSubboardTable,
     pub orbit_taus: [Vec<Tier7MacroTau>; 8],
-    pub open_mmaps: Mutex<std::collections::HashMap<String, Mmap>>,
+    pub mmaps: [Vec<OnceLock<Option<Mmap>>>; 8],
+    pub sym_micro_id: Box<[[u16; TOTAL_MICRO_STATES]; 8]>,
 }
 
 impl Tier7ZfsProber {
     pub fn new(dir: &Path) -> Result<Self, String> {
         let micro = MicroSubboardTable::build();
-        let orbit_taus = std::array::from_fn(|orbit_id| {
+        let sym_micro_id = build_sym_micro_id_table(&micro);
+        let orbit_taus: [Vec<Tier7MacroTau>; 8] = std::array::from_fn(|orbit_id| {
             let (rep_j, rep_k) = CANONICAL_ORBITS[orbit_id];
             enumerate_orbit_taus(rep_j, rep_k)
+        });
+        let mmaps = std::array::from_fn(|orbit_id| {
+            (0..orbit_taus[orbit_id].len())
+                .map(|_| OnceLock::new())
+                .collect()
         });
 
         Ok(Tier7ZfsProber {
             dir: dir.to_path_buf(),
             micro,
             orbit_taus,
-            open_mmaps: Mutex::new(std::collections::HashMap::new()),
+            mmaps,
+            sym_micro_id,
         })
+    }
+
+    /// Lazily opens and memory-maps the canonical slice for `(orbit_id, tau_idx)` without locking
+    #[inline]
+    pub fn get_slice(&self, orbit_id: usize, tau_idx: usize) -> Option<&[u8]> {
+        let cell = self.mmaps.get(orbit_id)?.get(tau_idx)?;
+        let mmap_opt = cell.get_or_init(|| {
+            let slice_filename = format!("tier7_orbit_{}_tau_{:03}.bin", orbit_id, tau_idx);
+            let slice_file = File::open(self.dir.join(&slice_filename)).ok()?;
+            let mmap = unsafe { Mmap::map(&slice_file).ok()? };
+            if mmap.len() == SLICE_BYTE_SIZE {
+                Some(mmap)
+            } else {
+                None
+            }
+        });
+        mmap_opt.as_deref()
     }
 
     /// Probes an UltimateTicTacToeBoard state with 7 closed subboards in < 15 ns
     pub fn probe(&self, board: &UltimateTicTacToeBoard) -> Option<EgtbOutcome> {
+        if check_subboard_win(board.x_supers) {
+            return Some(EgtbOutcome::P1Win);
+        }
+        if check_subboard_win(board.o_supers) {
+            return Some(EgtbOutcome::P2Win);
+        }
+
         // 1. Identify the 2 open subboards (7 closed by win or tie)
         let closed_supers = board.x_supers | board.o_supers | board.get_tied_mask();
         let mut open = [0usize; 2];
@@ -835,34 +886,22 @@ impl Tier7ZfsProber {
         let taus = &self.orbit_taus[pair_map.orbit_id];
         let tau_idx = taus.binary_search(&target_tau).ok()?;
 
-        // 4. Transform micro subboards to canonical orientation
+        // 4. Transform micro subboards to canonical orientation via precomputed sym_micro_id
         let (orig_j, orig_k) = if pair_map.flipped { (k, j) } else { (j, k) };
-        let canon_xj = pair_map.sym.transform_9bit(board.xbb[orig_j]);
-        let canon_oj = pair_map.sym.transform_9bit(board.obb[orig_j]);
-        let canon_xk = pair_map.sym.transform_9bit(board.xbb[orig_k]);
-        let canon_ok = pair_map.sym.transform_9bit(board.obb[orig_k]);
+        let raw_j = self.micro.to_id[((board.xbb[orig_j] as usize) << 9) | (board.obb[orig_j] as usize)] as usize;
+        let raw_k = self.micro.to_id[((board.xbb[orig_k] as usize) << 9) | (board.obb[orig_k] as usize)] as usize;
 
-        let j_id = self.micro.to_id[((canon_xj as usize) << 9) | (canon_oj as usize)] as usize;
-        let k_id = self.micro.to_id[((canon_xk as usize) << 9) | (canon_ok as usize)] as usize;
-
-        if j_id >= TOTAL_MICRO_STATES || k_id >= TOTAL_MICRO_STATES {
+        if raw_j >= TOTAL_MICRO_STATES || raw_k >= TOTAL_MICRO_STATES {
             return None;
         }
 
-        // 5. Query the memory-mapped slice
-        let slice_filename = format!("tier7_orbit_{}_tau_{:03}.bin", pair_map.orbit_id, tau_idx);
-        let mut map_guard = self.open_mmaps.lock().unwrap();
-        if !map_guard.contains_key(&slice_filename) {
-            let slice_file = File::open(self.dir.join(&slice_filename)).ok()?;
-            let mmap = unsafe { Mmap::map(&slice_file).ok()? };
-            if mmap.len() != SLICE_BYTE_SIZE {
-                return None;
-            }
-            map_guard.insert(slice_filename.clone(), mmap);
-        }
-        let mmap = map_guard.get(&slice_filename)?;
+        let sym_idx = pair_map.sym as usize;
+        let j_id = self.sym_micro_id[sym_idx][raw_j] as usize;
+        let k_id = self.sym_micro_id[sym_idx][raw_k] as usize;
 
-        let byte = mmap[j_id * TOTAL_MICRO_STATES + k_id];
+        // 5. Query the lock-free memory-mapped slice
+        let slice = self.get_slice(pair_map.orbit_id, tau_idx)?;
+        let byte = slice[j_id * TOTAL_MICRO_STATES + k_id];
 
         // 6. Decode byte for target and turn
         // byte = v(X, j) + 3 * v(X, k) + 9 * v(O, j) + 27 * v(O, k)
@@ -939,6 +978,10 @@ impl Tier7ZfsProber {
         micro_a_id: usize,
         micro_b_id: usize,
     ) -> Option<EgtbOutcome> {
+        if micro_a_id >= TOTAL_MICRO_STATES || micro_b_id >= TOTAL_MICRO_STATES {
+            return None;
+        }
+
         let pair_map = map_to_canonical_pair(rem_a, rem_b);
 
         // 1. Map tau to canonical orientation
@@ -961,42 +1004,20 @@ impl Tier7ZfsProber {
         let taus = &self.orbit_taus[pair_map.orbit_id];
         let tau_idx = taus.binary_search(&target_tau).ok()?;
 
-        // 2. Transform micro states under symmetry
+        // 2. Transform micro states under symmetry via precomputed sym_micro_id table
         let (id_j, id_k) = if pair_map.flipped {
             (micro_b_id, micro_a_id)
         } else {
             (micro_a_id, micro_b_id)
         };
 
-        let (xj, oj) = self.micro.states[id_j];
-        let (xk, ok) = self.micro.states[id_k];
+        let sym_idx = pair_map.sym as usize;
+        let j_id = self.sym_micro_id[sym_idx][id_j] as usize;
+        let k_id = self.sym_micro_id[sym_idx][id_k] as usize;
 
-        let canon_xj = pair_map.sym.transform_9bit(xj);
-        let canon_oj = pair_map.sym.transform_9bit(oj);
-        let canon_xk = pair_map.sym.transform_9bit(xk);
-        let canon_ok = pair_map.sym.transform_9bit(ok);
-
-        let j_id = self.micro.to_id[((canon_xj as usize) << 9) | (canon_oj as usize)] as usize;
-        let k_id = self.micro.to_id[((canon_xk as usize) << 9) | (canon_ok as usize)] as usize;
-
-        if j_id >= TOTAL_MICRO_STATES || k_id >= TOTAL_MICRO_STATES {
-            return None;
-        }
-
-        // 3. Query memory-mapped slice
-        let slice_filename = format!("tier7_orbit_{}_tau_{:03}.bin", pair_map.orbit_id, tau_idx);
-        let mut map_guard = self.open_mmaps.lock().unwrap();
-        if !map_guard.contains_key(&slice_filename) {
-            let slice_file = File::open(self.dir.join(&slice_filename)).ok()?;
-            let mmap = unsafe { Mmap::map(&slice_file).ok()? };
-            if mmap.len() != SLICE_BYTE_SIZE {
-                return None;
-            }
-            map_guard.insert(slice_filename.clone(), mmap);
-        }
-        let mmap = map_guard.get(&slice_filename)?;
-
-        let byte = mmap[j_id * TOTAL_MICRO_STATES + k_id];
+        // 3. Query lock-free memory-mapped slice
+        let slice = self.get_slice(pair_map.orbit_id, tau_idx)?;
+        let byte = slice[j_id * TOTAL_MICRO_STATES + k_id];
 
         let v_x_j = EgtbOutcome::from(byte % 3);
         let v_x_k = EgtbOutcome::from((byte / 3) % 3);
@@ -1054,6 +1075,49 @@ impl Tier7ZfsProber {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_sym_micro_id_table_consistency() {
+        let micro = MicroSubboardTable::build();
+        let sym_micro_id = build_sym_micro_id_table(&micro);
+
+        assert_eq!(micro.states.len(), TOTAL_MICRO_STATES);
+
+        let mut turn_balanced_count = 0usize;
+        for id in 0..TOTAL_MICRO_STATES {
+            let (x, o) = micro.states[id];
+            let (orig_empty, _) = micro.empty_and_local[id];
+            let x_cnt = x.count_ones() as i32;
+            let o_cnt = o.count_ones() as i32;
+            if (x_cnt - o_cnt).abs() <= 1 {
+                turn_balanced_count += 1;
+            }
+
+            for &sym in &ALL_SYMMETRIES {
+                let sym_idx = sym as usize;
+                let mapped_id = sym_micro_id[sym_idx][id] as usize;
+                assert!(mapped_id < TOTAL_MICRO_STATES);
+
+                let tx = sym.transform_9bit(x);
+                let to = sym.transform_9bit(o);
+                let expected_id = micro.to_id[((tx as usize) << 9) | (to as usize)] as usize;
+                assert_eq!(mapped_id, expected_id);
+
+                let (mapped_empty, _) = micro.empty_and_local[mapped_id];
+                assert_eq!(orig_empty, mapped_empty);
+
+                let inv_idx = sym.inverse() as usize;
+                let roundtrip_id = sym_micro_id[inv_idx][mapped_id] as usize;
+                assert_eq!(roundtrip_id, id);
+            }
+        }
+
+        assert!(
+            turn_balanced_count >= 5478,
+            "Expected at least 5,478 turn-balanced micro states, found {}",
+            turn_balanced_count
+        );
+    }
 
     #[test]
     fn test_canonical_pair_reduction_all_36_pairs() {

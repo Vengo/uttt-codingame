@@ -31,7 +31,7 @@ To ensure complete self-sufficiency for any engineer or researcher reviewing thi
   - **Cycle**: One full iteration of the self-play loop (generating 128 parallel games, ingesting samples into the replay buffer, training the neural network for 3 epochs, and running a 1,024-pair mirror gating tournament).
   - **Generation**: Increments *only* when a challenger model meets the gating threshold and dethrones the existing champion.
 - **Competitor Profiles**:
-  - `UTTTTransformer`: 4-layer Vision/Board Transformer (800k parameters) operating on 9 subboard tokens with multi-head self-attention and dual policy/value heads.
+  - `UTTTTransformer`: 4-layer Vision/Board Transformer (800,770 parameters) operating on 82 tokens (`1 [CLS]` token + `81` micro-cell tokens) with 2D decomposed positional embeddings (`subboard_embed(9)` + `cell_embed(9)`), multi-head self-attention, and dual policy/value heads.
   - `AlphaZeroResNet`: 4-residual-block CNN baseline (Gen 7 champion, calibrated anchor at 1906.4 Elo).
   - `AlphaBetaV2`: Pure Rust classical minimax bot compiled with C-ABI, bitboards, Transposition Tables, History Heuristics, and Depth-First Proof-Number search (DF-PN).
 

@@ -34,15 +34,15 @@ During this engineering session, the Ultimate Tic-Tac-Toe (UTTT) AI system achie
 - **File**: [`ml/transformer_model.py`](file:///home/festivity/agy/uttt-codingame/ml/transformer_model.py)
 - **Motivation**: Standard CNNs (such as ResNet-4) operate via small local receptive fields (3x3 convolutions), struggling to capture non-local macroboard relationships where placing a stone in square $s$ of subboard $j$ forcibly redirects the opponent across the entire board to subboard $s$.
 - **Architecture**:
-  - **Patch Decomposition**: The $9 \times 9$ board is decomposed into 9 distinct $3 \times 3$ subboard tokens.
-  - **Subboard Embedder**: A 2-layer MLP projects the 9-dimensional state of each subboard into a $D=128$ embedding space.
-  - **Spatial Embeddings**: Learnable 2D positional embeddings for grid rows and columns ($3 \times 3$).
-  - **Global Context Token**: A learnable `[CLS]` token interacts across all 9 subboard tokens via Multi-Head Self-Attention (MHSA).
-  - **Transformer Encoder**: 4 Transformer blocks (embed_dim=128, 4 attention heads, MLP expansion ratio 2.0, Pre-LayerNorm, GELU activations).
+  - **Micro-Cell Tokenization**: The $5 \times 9 \times 9$ board is flattened into 81 individual micro-cell tokens (5 features per cell).
+  - **Linear Token Projection**: A linear projection (`nn.Linear(5, 128)`) maps each 5-dimensional cell feature vector into a $D=128$ embedding space.
+  - **2D Decomposed Positional Embeddings**: Learnable hierarchical embeddings for the macro-subboard index (`nn.Embedding(9, 128)`) and local micro-cell index (`nn.Embedding(9, 128)`), summed with the cell projection.
+  - **Global Context Token**: A learnable `[CLS]` token prepended to form an 82-token sequence (`1 [CLS] + 81 micro-cells`) interacting via Multi-Head Self-Attention (MHSA).
+  - **Transformer Encoder**: 4 Transformer blocks (`d_model=128`, 4 attention heads, `dim_feedforward=512`, Pre-LayerNorm, GELU activations).
   - **Dual Heads**:
-    - Policy Head: Combines subboard representations with grid positions to output 81 action logits.
-    - Value Head: Pools the `[CLS]` token representation through a 2-layer MLP with $\tanh$ output in $[-1, +1]$.
-- **Parameter Count**: ~800,000 parameters (3.2 MB uncompressed weights).
+    - Policy Head: Applies LayerNorm + 2-layer MLP (`128 -> 64 -> 1`) to each of the 81 micro-cell tokens to output 81 action logits.
+    - Value Head: Pools the `[CLS]` token representation through LayerNorm + 2-layer MLP (`128 -> 128 -> 1`) with $\tanh$ output in $[-1, +1]$.
+- **Parameter Count**: 800,770 parameters (~3.2 MB uncompressed weights).
 - **Promotion Milestone**: Initially trained on 1,000,000 self-play and expert states, achieving a 67.29% win rate over the Gen-7 ResNet champion to become the **Generation 8 Champion (Elo 2031.1)**.
 
 ### 2.2 Pure Rust Batch MCTS Worker (`RustMctsWorker`)

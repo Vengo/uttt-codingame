@@ -28,7 +28,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml.model import AlphaZeroResNet
-from ml.transformer_model import UTTTTransformer
+from ml.transformer_model import UTTTTransformer, infer_transformer_kwargs_from_state_dict
 from ml.rust_mcts_worker import RustMctsWorker
 from ml.parallel_mirror_eval import (
     PairedPosition,
@@ -375,20 +375,37 @@ def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     transformer_path = os.path.join(base_dir, "ml", "champion.pt")
     resnet_path = os.path.join(base_dir, "ml", "champion_gen7_resnet.pt")
+    meta_path = os.path.join(base_dir, "ml", "champion_metadata.json")
+
+    champ_gen = 8
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r") as f:
+                champ_gen = int(json.load(f).get("generation", 8))
+        except Exception:
+            pass
 
     print(f"\n[1/4] Loading competitor models...")
-    print(f"  - Loading UTTTTransformer (Gen 8 Champion) from {transformer_path}...")
-    transformer = UTTTTransformer().to(device)
+    print(f"  - Loading UTTTTransformer (Gen-{champ_gen} Champion) from {transformer_path}...")
     transformer_ckpt = torch.load(transformer_path, map_location=device, weights_only=False)
     if isinstance(transformer_ckpt, dict) and "model_state_dict" in transformer_ckpt:
-        transformer.load_state_dict(transformer_ckpt["model_state_dict"])
+        t_sd = transformer_ckpt["model_state_dict"]
+        if "generation" in transformer_ckpt:
+            champ_gen = int(transformer_ckpt["generation"])
+        t_kwargs = infer_transformer_kwargs_from_state_dict(t_sd)
+        transformer = UTTTTransformer(**t_kwargs).to(device)
+        transformer.load_state_dict(t_sd)
     elif isinstance(transformer_ckpt, dict):
+        t_kwargs = infer_transformer_kwargs_from_state_dict(transformer_ckpt)
+        transformer = UTTTTransformer(**t_kwargs).to(device)
         transformer.load_state_dict(transformer_ckpt)
     else:
         transformer = transformer_ckpt.to(device)
     transformer.eval()
     t_params = sum(p.numel() for p in transformer.parameters())
-    print(f"    UTTTTransformer loaded successfully ({t_params:,} parameters).")
+    print(
+        f"    UTTTTransformer ({transformer.num_layers}L, d={transformer.d_model}) loaded successfully ({t_params:,} parameters)."
+    )
 
     print(f"  - Loading AlphaZeroResNet (Gen 7 Champion) from {resnet_path}...")
     resnet = AlphaZeroResNet().to(device)
@@ -483,7 +500,7 @@ def main():
     print(f"------+--------------------+-------------+-------------------------------")
     sorted_ranks = sorted(elo_ratings.items(), key=lambda x: x[1], reverse=True)
     descriptions = {
-        "UTTTTransformer": "Gen-8 Champion (Vision Transformer)",
+        "UTTTTransformer": f"Gen-{champ_gen} Champion (Vision Transformer, {transformer.num_layers}L)",
         "AlphaZeroResNet": "Gen-7 Champion (Residual CNN)",
         "AlphaBetaV2": "Pure Minimax (C-ABI / TT / DF-PN)",
     }

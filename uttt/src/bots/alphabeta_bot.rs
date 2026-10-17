@@ -10,6 +10,10 @@ const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273
 const SUBBOARD_VALUES: [i32; 9] = [200, 150, 200, 150, 300, 150, 200, 150, 200];
 const CELL_VALUES: [i32; 9] = [8, 4, 8, 4, 15, 4, 8, 4, 8];
 
+pub const MATE_SCORE: i32 = 100_000;
+pub const EGTB_WIN_SCORE: i32 = 95_000;
+pub const MATE_THRESHOLD: i32 = 90_000;
+
 #[derive(Clone, Copy)]
 enum TTFlag {
     Exact,
@@ -38,10 +42,38 @@ impl AlphaBetaBot {
         }
     }
 
+    #[inline(always)]
+    pub fn full_hash(board: &UltimateTicTacToeBoard) -> u64 {
+        let target_idx = (board.last_super_index as usize).min(9) as u64;
+        board.hash_val() ^ (target_idx + 1).wrapping_mul(0x9E3779B97F4A7C15).rotate_left(17)
+    }
+
+    #[inline(always)]
+    fn score_to_tt(score: i32, ply: usize) -> i32 {
+        if score >= MATE_THRESHOLD {
+            score + ply as i32
+        } else if score <= -MATE_THRESHOLD {
+            score - ply as i32
+        } else {
+            score
+        }
+    }
+
+    #[inline(always)]
+    fn score_from_tt(score: i32, ply: usize) -> i32 {
+        if score >= MATE_THRESHOLD {
+            score - ply as i32
+        } else if score <= -MATE_THRESHOLD {
+            score + ply as i32
+        } else {
+            score
+        }
+    }
+
     fn evaluate_board(board: &UltimateTicTacToeBoard) -> i32 {
         match board.get_win_state() {
-            GameResult::P1Win => return 100_000,
-            GameResult::P2Win => return -100_000,
+            GameResult::P1Win => return MATE_SCORE,
+            GameResult::P2Win => return -MATE_SCORE,
             GameResult::Tie => return 0,
             GameResult::Unresolved => {}
         }
@@ -148,6 +180,7 @@ impl AlphaBetaBot {
         &mut self,
         board: &mut UltimateTicTacToeBoard,
         depth: u8,
+        ply: usize,
         mut alpha: i32,
         mut beta: i32,
         zobrist_constants: &ZobristConstants,
@@ -159,24 +192,46 @@ impl AlphaBetaBot {
             return 0;
         }
 
-        let hash = board.hash_val();
+        let hash = Self::full_hash(board);
         let original_alpha = alpha;
 
         if let Some(entry) = self.tt.get(&hash) {
             if entry.depth >= depth {
+                let tt_score = Self::score_from_tt(entry.score, ply);
                 match entry.flag {
-                    TTFlag::Exact => return entry.score,
-                    TTFlag::LowerBound => alpha = alpha.max(entry.score),
-                    TTFlag::UpperBound => beta = beta.min(entry.score),
+                    TTFlag::Exact => return tt_score,
+                    TTFlag::LowerBound => alpha = alpha.max(tt_score),
+                    TTFlag::UpperBound => beta = beta.min(tt_score),
                 }
                 if alpha >= beta {
-                    return entry.score;
+                    return tt_score;
                 }
             }
         }
 
         let win_state = board.get_win_state();
-        if win_state != GameResult::Unresolved || depth == 0 {
+        if win_state != GameResult::Unresolved {
+            return match win_state {
+                GameResult::P1Win => {
+                    if board.x_to_move {
+                        MATE_SCORE - ply as i32
+                    } else {
+                        -MATE_SCORE + ply as i32
+                    }
+                }
+                GameResult::P2Win => {
+                    if !board.x_to_move {
+                        MATE_SCORE - ply as i32
+                    } else {
+                        -MATE_SCORE + ply as i32
+                    }
+                }
+                GameResult::Tie => 0,
+                GameResult::Unresolved => unreachable!(),
+            };
+        }
+
+        if depth == 0 {
             let static_eval = Self::evaluate_board(board);
             return if board.x_to_move { static_eval } else { -static_eval };
         }
@@ -198,6 +253,7 @@ impl AlphaBetaBot {
             let score = -self.negamax(
                 board,
                 depth - 1,
+                ply + 1,
                 -beta,
                 -alpha,
                 zobrist_constants,
@@ -232,7 +288,7 @@ impl AlphaBetaBot {
             hash,
             TTEntry {
                 depth,
-                score: best_score,
+                score: Self::score_to_tt(best_score, ply),
                 flag,
                 best_move: Some(best_move),
             },
@@ -272,13 +328,15 @@ impl Bot for AlphaBetaBot {
         let deadline = Instant::now() + time_limit;
         let mut mut_board = board.clone();
         let mut best_move = moves[0];
+        let hash = Self::full_hash(board);
 
         // Iterative deepening from depth 1 up to depth 12
         for current_depth in 1..=12 {
             let mut time_exceeded = false;
-            let _score = self.negamax(
+            let score = self.negamax(
                 &mut mut_board,
                 current_depth,
+                0,
                 -150_000,
                 150_000,
                 zobrist_constants,
@@ -290,11 +348,14 @@ impl Bot for AlphaBetaBot {
                 break;
             }
 
-            let hash = board.hash_val();
             if let Some(entry) = self.tt.get(&hash) {
                 if let Some(m) = entry.best_move {
                     best_move = m;
                 }
+            }
+
+            if score >= MATE_SCORE - 100 {
+                break;
             }
         }
 

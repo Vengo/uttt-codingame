@@ -47,13 +47,18 @@ class RustMctsWorker:
         if not self.worker:
             raise RuntimeError("Failed to allocate MctsWorker in Rust")
 
-        # Pre-allocate contiguous zero-copy host buffers
-        self.features_buffer = np.zeros((self.num_games, 5, 9, 9), dtype=np.float32)
-        self.masks_buffer = np.zeros((self.num_games, 81), dtype=np.float32)
-        self.logits_buffer = np.zeros((self.num_games, 81), dtype=np.float32)
-        self.values_buffer = np.zeros((self.num_games,), dtype=np.float32)
+        # Pre-allocate contiguous zero-copy host buffers (default capacity for virtual_loss_k up to 8)
+        self.buffer_capacity_k = 1
+        self._allocate_buffers(max_k=8)
 
-        self.active_indices_buffer = np.zeros((self.num_games,), dtype=np.uintp)
+    def _allocate_buffers(self, max_k: int):
+        self.buffer_capacity_k = max(1, int(max_k))
+        cap = self.num_games * self.buffer_capacity_k
+        self.features_buffer = np.zeros((cap, 5, 9, 9), dtype=np.float32)
+        self.masks_buffer = np.zeros((cap, 81), dtype=np.float32)
+        self.logits_buffer = np.zeros((cap, 81), dtype=np.float32)
+        self.values_buffer = np.zeros((cap,), dtype=np.float32)
+        self.active_indices_buffer = np.zeros((cap,), dtype=np.uintp)
 
         # Raw pointers for C-ABI
         self.feat_ptr = self.features_buffer.ctypes.data_as(ctypes.c_void_p)
@@ -75,8 +80,26 @@ class RustMctsWorker:
         self.lib.mcts_worker_prepare_step.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
         self.lib.mcts_worker_prepare_step.restype = ctypes.c_size_t
 
+        if hasattr(self.lib, "mcts_worker_prepare_step_vloss"):
+            self.lib.mcts_worker_prepare_step_vloss.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+            ]
+            self.lib.mcts_worker_prepare_step_vloss.restype = ctypes.c_size_t
+
         self.lib.mcts_worker_finish_step.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
         self.lib.mcts_worker_finish_step.restype = None
+
+        if hasattr(self.lib, "mcts_worker_finish_step_vloss"):
+            self.lib.mcts_worker_finish_step_vloss.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.c_size_t,
+            ]
+            self.lib.mcts_worker_finish_step_vloss.restype = None
 
         self.lib.mcts_worker_advance_moves.argtypes = [ctypes.c_void_p, ctypes.c_float]
         self.lib.mcts_worker_advance_moves.restype = ctypes.c_size_t
@@ -161,15 +184,30 @@ class RustMctsWorker:
     def reset(self):
         self.lib.mcts_worker_reset(self.worker)
 
-    def step_simulation(self, model: AlphaZeroResNet, device: str = "cuda") -> int:
+    def step_simulation(
+        self,
+        model: AlphaZeroResNet,
+        device: str = "cuda",
+        virtual_loss_k: int = 1,
+    ) -> int:
         """
-        Runs a single MCTS simulation step across all games:
+        Runs a single MCTS simulation step across all games (up to `virtual_loss_k` leaves per game):
         1. Rayon parallel tree walk in Rust (< 0.2 ms)
-        2. PyTorch GPU batch forward pass on leaves (2.78 ms on RTX 5060 Ti)
+        2. PyTorch GPU batch forward pass on leaves
         3. Rayon parallel expansion and backprop in Rust (< 0.2 ms)
         Returns: number of active leaves evaluated on GPU.
         """
-        n_active = self.lib.mcts_worker_prepare_step(self.worker, self.feat_ptr, self.mask_ptr)
+        k = max(1, int(virtual_loss_k))
+        if k > self.buffer_capacity_k:
+            self._allocate_buffers(max_k=k)
+
+        if k > 1 and hasattr(self.lib, "mcts_worker_prepare_step_vloss"):
+            n_active = self.lib.mcts_worker_prepare_step_vloss(
+                self.worker, ctypes.c_size_t(k), self.feat_ptr, self.mask_ptr
+            )
+        else:
+            n_active = self.lib.mcts_worker_prepare_step(self.worker, self.feat_ptr, self.mask_ptr)
+
         if n_active > 0:
             # Zero-copy slicing into PyTorch tensors
             x_t = torch.from_numpy(self.features_buffer[:n_active]).to(device, non_blocking=True)
@@ -192,11 +230,22 @@ class RustMctsWorker:
         model: AlphaZeroResNet,
         num_simulations: int = 800,
         device: str = "cuda",
+        virtual_loss_k: int = 1,
     ) -> int:
         """Executes num_simulations across all parallel games."""
         total_evals = 0
-        for _ in range(num_simulations):
-            total_evals += self.step_simulation(model, device=device)
+        k = max(1, int(virtual_loss_k))
+        if k == 1 or not hasattr(self.lib, "mcts_worker_prepare_step_vloss"):
+            for _ in range(num_simulations):
+                total_evals += self.step_simulation(model, device=device, virtual_loss_k=1)
+        else:
+            # Ensure root node is expanded on any newly reset game before multi-leaf traversal
+            total_evals += self.step_simulation(model, device=device, virtual_loss_k=1)
+            sims_done = 1
+            while sims_done < num_simulations:
+                step_k = min(k, num_simulations - sims_done)
+                total_evals += self.step_simulation(model, device=device, virtual_loss_k=step_k)
+                sims_done += step_k
         return total_evals
 
     def advance_moves(self, temperature: float = 1.0) -> int:
@@ -252,8 +301,9 @@ class RustMctsWorker:
 
     def get_active_indices(self) -> np.ndarray:
         """Returns the game indices of leaves currently being evaluated."""
+        max_cap = self.num_games * self.buffer_capacity_k
         n = self.lib.mcts_worker_get_active_indices(
-            self.worker, self.act_idx_ptr, ctypes.c_size_t(self.num_games)
+            self.worker, self.act_idx_ptr, ctypes.c_size_t(max_cap)
         )
         return self.active_indices_buffer[:n].copy()
 
@@ -282,12 +332,23 @@ class RustMctsWorker:
         model_champ: AlphaZeroResNet,
         game_to_model: np.ndarray,
         device: str = "cuda",
+        virtual_loss_k: int = 1,
     ) -> int:
         """
-        Runs a simulation step across 2,048 parallel games with two competing models.
+        Runs a simulation step across parallel games with two competing models.
         `game_to_model[g]` is True if Challenger evaluates game `g`, False for Champion.
         """
-        n_active = self.lib.mcts_worker_prepare_step(self.worker, self.feat_ptr, self.mask_ptr)
+        k = max(1, int(virtual_loss_k))
+        if k > self.buffer_capacity_k:
+            self._allocate_buffers(max_k=k)
+
+        if k > 1 and hasattr(self.lib, "mcts_worker_prepare_step_vloss"):
+            n_active = self.lib.mcts_worker_prepare_step_vloss(
+                self.worker, ctypes.c_size_t(k), self.feat_ptr, self.mask_ptr
+            )
+        else:
+            n_active = self.lib.mcts_worker_prepare_step(self.worker, self.feat_ptr, self.mask_ptr)
+
         if n_active > 0:
             active_games = self.get_active_indices()[:n_active]
             is_chal = game_to_model[active_games]

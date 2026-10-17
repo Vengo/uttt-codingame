@@ -7,7 +7,6 @@ use crate::opening_book::OpeningBook;
 use crate::uttt_trait_solving::{
     parse_index, UltimateTicTacToeBoard, ZobristConstants,
 };
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 const RESULT_MASKS: [u16; 8] = [7, 7 << 3, 7 << 6, 73, 73 << 1, 73 << 2, 84, 273];
@@ -15,20 +14,42 @@ const SUBBOARD_VALUES: [i32; 9] = [200, 150, 200, 150, 300, 150, 200, 150, 200];
 const CELL_VALUES: [i32; 9] = [8, 4, 8, 4, 15, 4, 8, 4, 8];
 
 pub const MAX_PLY: usize = 81;
+pub const MATE_SCORE: i32 = 100_000;
+pub const EGTB_WIN_SCORE: i32 = 95_000;
+pub const MATE_THRESHOLD: i32 = 90_000;
+const TT_SIZE: usize = 1 << 20;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 enum TTFlag {
-    Exact,
-    LowerBound,
-    UpperBound,
+    Empty = 0,
+    Exact = 1,
+    LowerBound = 2,
+    UpperBound = 3,
 }
 
 #[derive(Clone, Copy)]
+#[repr(C)]
 struct TTEntry {
-    depth: u8,
+    key: u64,
     score: i32,
+    depth: u8,
     flag: TTFlag,
     best_move: Option<GameMove>,
+    generation: u8,
+}
+
+impl Default for TTEntry {
+    fn default() -> Self {
+        TTEntry {
+            key: 0,
+            score: 0,
+            depth: 0,
+            flag: TTFlag::Empty,
+            best_move: None,
+            generation: 0,
+        }
+    }
 }
 
 /// Hybrid Policy-Guided Minimax Bot (`PolicyAlphaBetaBot` / `NnueBot`)
@@ -36,7 +57,9 @@ struct TTEntry {
 /// macro-board routing heuristics, and DF-PN/EGTB endgame solving.
 pub struct PolicyAlphaBetaBot {
     name: String,
-    tt: HashMap<u64, TTEntry>,
+    tt: Vec<TTEntry>,
+    generation: u8,
+    root_pv_move: Option<GameMove>,
     pub killers: [[Option<GameMove>; 2]; MAX_PLY],
     pub history: [[u32; 81]; 81],
     pub countermoves: [Option<GameMove>; 81],
@@ -50,15 +73,28 @@ pub struct PolicyAlphaBetaBot {
 }
 
 impl PolicyAlphaBetaBot {
+    #[inline(never)]
+    fn init_egtb() -> Option<EgtbDatabase> {
+        Some(EgtbDatabase::new())
+    }
+
+    #[inline(never)]
+    fn init_legal_lookup() -> Vec<Vec<GameMove>> {
+        UltimateTicTacToeBoard::get_move_ordering_array()
+    }
+
+    #[inline(never)]
     pub fn new() -> Self {
-        let egtb = Some(EgtbDatabase::new());
-        let legal_lookup = UltimateTicTacToeBoard::get_move_ordering_array();
+        let egtb = Self::init_egtb();
+        let legal_lookup = Self::init_legal_lookup();
         let nn_model = ModelInt8::from_bytes(DEFAULT_MODEL_BYTES).ok();
         let nn_workspace = InferenceWorkspace::new();
 
         PolicyAlphaBetaBot {
             name: "PolicyAlphaBetaBot".to_string(),
-            tt: HashMap::with_capacity(1_000_000),
+            tt: vec![TTEntry::default(); TT_SIZE],
+            generation: 0,
+            root_pv_move: None,
             killers: [[None; 2]; MAX_PLY],
             history: [[0u32; 81]; 81],
             countermoves: [None; 81],
@@ -72,6 +108,46 @@ impl PolicyAlphaBetaBot {
         }
     }
 
+    #[inline(always)]
+    pub fn full_hash(board: &UltimateTicTacToeBoard) -> u64 {
+        let target_idx = (board.last_super_index as usize).min(9) as u64;
+        board.hash_val() ^ (target_idx + 1).wrapping_mul(0x9E3779B97F4A7C15).rotate_left(17)
+    }
+
+    #[inline(always)]
+    fn score_to_tt(score: i32, ply: usize) -> i32 {
+        if score >= MATE_THRESHOLD {
+            score + ply as i32
+        } else if score <= -MATE_THRESHOLD {
+            score - ply as i32
+        } else {
+            score
+        }
+    }
+
+    #[inline(always)]
+    fn score_from_tt(score: i32, ply: usize) -> i32 {
+        if score >= MATE_THRESHOLD {
+            score - ply as i32
+        } else if score <= -MATE_THRESHOLD {
+            score + ply as i32
+        } else {
+            score
+        }
+    }
+
+    #[inline(always)]
+    fn probe_tt(&self, hash: u64) -> Option<TTEntry> {
+        let idx = (hash as usize) & (TT_SIZE - 1);
+        let entry = self.tt[idx];
+        if entry.flag != TTFlag::Empty && entry.key == hash {
+            Some(entry)
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
     fn store_tt(
         &mut self,
         hash: u64,
@@ -80,36 +156,34 @@ impl PolicyAlphaBetaBot {
         flag: TTFlag,
         best_move: Option<GameMove>,
     ) {
-        if let Some(existing) = self.tt.get_mut(&hash) {
-            if depth >= existing.depth {
-                let preserved_best = best_move.or(existing.best_move);
-                *existing = TTEntry {
-                    depth,
-                    score,
-                    flag,
-                    best_move: preserved_best,
+        let idx = (hash as usize) & (TT_SIZE - 1);
+        let entry = &mut self.tt[idx];
+        if entry.flag == TTFlag::Empty
+            || entry.key == hash
+            || entry.generation != self.generation
+            || depth >= entry.depth
+        {
+            let preserved_best =
+                if best_move.is_none() && entry.flag != TTFlag::Empty && entry.key == hash {
+                    entry.best_move
+                } else {
+                    best_move
                 };
-            }
-        } else {
-            if self.tt.len() >= 1_000_000 {
-                self.tt.clear();
-            }
-            self.tt.insert(
-                hash,
-                TTEntry {
-                    depth,
-                    score,
-                    flag,
-                    best_move,
-                },
-            );
+            *entry = TTEntry {
+                key: hash,
+                score,
+                depth,
+                flag,
+                best_move: preserved_best,
+                generation: self.generation,
+            };
         }
     }
 
     pub fn evaluate_board(board: &UltimateTicTacToeBoard) -> i32 {
         match board.get_win_state() {
-            GameResult::P1Win => return 100_000,
-            GameResult::P2Win => return -100_000,
+            GameResult::P1Win => return MATE_SCORE,
+            GameResult::P2Win => return -MATE_SCORE,
             GameResult::Tie => return 0,
             GameResult::Unresolved => {}
         }
@@ -466,19 +540,22 @@ impl PolicyAlphaBetaBot {
             return 0;
         }
 
-        let hash = board.hash_val();
+        let hash = Self::full_hash(board);
         let original_alpha = alpha;
 
         // 1. Transposition table lookup
-        if let Some(entry) = self.tt.get(&hash) {
+        let tt_entry = self.probe_tt(hash);
+        if let Some(entry) = tt_entry {
             if entry.depth >= depth {
+                let tt_score = Self::score_from_tt(entry.score, ply);
                 match entry.flag {
-                    TTFlag::Exact => return entry.score,
-                    TTFlag::LowerBound => alpha = alpha.max(entry.score),
-                    TTFlag::UpperBound => beta = beta.min(entry.score),
+                    TTFlag::Exact => return tt_score,
+                    TTFlag::LowerBound => alpha = alpha.max(tt_score),
+                    TTFlag::UpperBound => beta = beta.min(tt_score),
+                    TTFlag::Empty => unreachable!(),
                 }
                 if alpha >= beta {
-                    return entry.score;
+                    return tt_score;
                 }
             }
         }
@@ -488,10 +565,18 @@ impl PolicyAlphaBetaBot {
         if win_state != GameResult::Unresolved {
             let score = match win_state {
                 GameResult::P1Win => {
-                    if board.x_to_move { 100_000 } else { -100_000 }
+                    if board.x_to_move {
+                        MATE_SCORE - ply as i32
+                    } else {
+                        -MATE_SCORE + ply as i32
+                    }
                 }
                 GameResult::P2Win => {
-                    if !board.x_to_move { 100_000 } else { -100_000 }
+                    if !board.x_to_move {
+                        MATE_SCORE - ply as i32
+                    } else {
+                        -MATE_SCORE + ply as i32
+                    }
                 }
                 GameResult::Tie => 0,
                 GameResult::Unresolved => unreachable!(),
@@ -499,17 +584,25 @@ impl PolicyAlphaBetaBot {
             return score;
         }
 
-        // 3. EGTB probing for endgame cutoffs
-        let resolved = (board.x_supers | board.o_supers | board.get_tied_mask()).count_ones();
-        if resolved >= 7 {
+        // 3. EGTB probing for non-terminal endgame cutoffs
+        let resolved_count = board.get_resolved_count();
+        if ply > 0 && resolved_count >= 6 {
             if let Some(ref mut egtb) = self.egtb {
                 if let Some(outcome) = egtb.probe(board) {
                     let score = match outcome {
                         GameResult::P1Win => {
-                            if board.x_to_move { 100_000 } else { -100_000 }
+                            if board.x_to_move {
+                                EGTB_WIN_SCORE - ply as i32
+                            } else {
+                                -EGTB_WIN_SCORE + ply as i32
+                            }
                         }
                         GameResult::P2Win => {
-                            if !board.x_to_move { 100_000 } else { -100_000 }
+                            if !board.x_to_move {
+                                EGTB_WIN_SCORE - ply as i32
+                            } else {
+                                -EGTB_WIN_SCORE + ply as i32
+                            }
                         }
                         GameResult::Tie => 0,
                         GameResult::Unresolved => unreachable!(),
@@ -534,7 +627,7 @@ impl PolicyAlphaBetaBot {
                     if RESULT_MASKS.iter().any(|mask| (new_my_bb & mask) == *mask) {
                         let new_supers = my_supers | (1 << sub);
                         if RESULT_MASKS.iter().any(|mask| (new_supers & mask) == *mask) {
-                            return 100_000;
+                            return MATE_SCORE - (ply as i32 + 1);
                         }
                     }
                 }
@@ -549,7 +642,11 @@ impl PolicyAlphaBetaBot {
             return if board.x_to_move { static_eval } else { -static_eval };
         }
 
-        let tt_best = self.tt.get(&hash).and_then(|e| e.best_move);
+        let tt_best = if ply == 0 {
+            self.root_pv_move.or_else(|| tt_entry.and_then(|e| e.best_move))
+        } else {
+            tt_entry.and_then(|e| e.best_move)
+        };
         let root_priors = if ply == 0 { self.cached_root_priors.as_ref() } else { None };
 
         self.order_moves(&mut moves, tt_best, ply, prev_move, board, root_priors);
@@ -557,23 +654,73 @@ impl PolicyAlphaBetaBot {
         let mut best_score = -200_000;
         let mut best_move = moves[0];
 
-        for m in moves {
+        for (i, m) in moves.into_iter().enumerate() {
             let parsed = parse_index(m.move_index);
-            let my_bb = if m.x_to_move { board.xbb[parsed.sub_board_index] } else { board.obb[parsed.sub_board_index] };
-            let is_tactical = RESULT_MASKS.iter().any(|mask| ((my_bb | (1 << parsed.sub_square_index)) & mask) == *mask);
+            let my_bb = if m.x_to_move {
+                board.xbb[parsed.sub_board_index]
+            } else {
+                board.obb[parsed.sub_board_index]
+            };
+            let is_tactical = RESULT_MASKS
+                .iter()
+                .any(|mask| ((my_bb | (1 << parsed.sub_square_index)) & mask) == *mask);
 
             let unmove = board.make_move(m, zobrist_constants);
-            let score = -self.negamax(
-                board,
-                depth - 1,
-                ply + 1,
-                -beta,
-                -alpha,
-                Some(m),
-                zobrist_constants,
-                deadline,
-                time_exceeded,
-            );
+            let score = if i == 0 {
+                -self.negamax(
+                    board,
+                    depth - 1,
+                    ply + 1,
+                    -beta,
+                    -alpha,
+                    Some(m),
+                    zobrist_constants,
+                    deadline,
+                    time_exceeded,
+                )
+            } else {
+                let mut s = alpha + 1;
+                if depth >= 3 && i >= 4 && !is_tactical {
+                    s = -self.negamax(
+                        board,
+                        depth - 2,
+                        ply + 1,
+                        -alpha - 1,
+                        -alpha,
+                        Some(m),
+                        zobrist_constants,
+                        deadline,
+                        time_exceeded,
+                    );
+                }
+                if s > alpha && !*time_exceeded {
+                    s = -self.negamax(
+                        board,
+                        depth - 1,
+                        ply + 1,
+                        -alpha - 1,
+                        -alpha,
+                        Some(m),
+                        zobrist_constants,
+                        deadline,
+                        time_exceeded,
+                    );
+                    if s > alpha && beta > alpha + 1 && !*time_exceeded {
+                        s = -self.negamax(
+                            board,
+                            depth - 1,
+                            ply + 1,
+                            -beta,
+                            -alpha,
+                            Some(m),
+                            zobrist_constants,
+                            deadline,
+                            time_exceeded,
+                        );
+                    }
+                }
+                s
+            };
             board.unmake_move(unmove);
 
             if *time_exceeded {
@@ -597,7 +744,8 @@ impl PolicyAlphaBetaBot {
                         let p_idx = prev.move_index as usize;
                         let c_idx = m.move_index as usize;
                         self.countermoves[p_idx] = Some(m);
-                        self.history[p_idx][c_idx] = self.history[p_idx][c_idx].saturating_add((depth as u32) * (depth as u32));
+                        self.history[p_idx][c_idx] = self.history[p_idx][c_idx]
+                            .saturating_add((depth as u32) * (depth as u32));
 
                         const MAX_HISTORY: u32 = 100_000;
                         if self.history[p_idx][c_idx] > MAX_HISTORY {
@@ -617,7 +765,16 @@ impl PolicyAlphaBetaBot {
             TTFlag::Exact
         };
 
-        self.store_tt(hash, depth, best_score, flag, Some(best_move));
+        if ply == 0 {
+            self.root_pv_move = Some(best_move);
+        }
+        self.store_tt(
+            hash,
+            depth,
+            Self::score_to_tt(best_score, ply),
+            flag,
+            Some(best_move),
+        );
 
         best_score
     }
@@ -629,7 +786,9 @@ impl Bot for PolicyAlphaBetaBot {
     }
 
     fn reset(&mut self) {
-        self.tt.clear();
+        self.tt.fill(TTEntry::default());
+        self.generation = 0;
+        self.root_pv_move = None;
         self.killers = [[None; 2]; MAX_PLY];
         self.history = [[0u32; 81]; 81];
         self.countermoves = [None; 81];
@@ -662,7 +821,9 @@ impl Bot for PolicyAlphaBetaBot {
         let resolved = (board.x_supers | board.o_supers | board.get_tied_mask()).count_ones();
         if resolved >= 5 {
             self.dfpn.max_nodes = 3_000;
-            if let Some((true, Some(winning_move))) = self.dfpn.solve_move(board, &self.legal_lookup, zobrist_constants) {
+            if let Some((true, Some(winning_move))) =
+                self.dfpn.solve_move(board, &self.legal_lookup, zobrist_constants)
+            {
                 if legal_moves.iter().any(|m| m.move_index == winning_move.move_index) {
                     return winning_move;
                 }
@@ -673,7 +834,9 @@ impl Bot for PolicyAlphaBetaBot {
         let priors = self.compute_root_priors(board);
         self.cached_root_priors = Some(priors);
 
-        // 4. Reset killers for the new search
+        // 4. Advance TT generation and reset killers / root PV for the new search
+        self.generation = self.generation.wrapping_add(1);
+        self.root_pv_move = None;
         self.killers = [[None; 2]; MAX_PLY];
 
         // 5. Iterative deepening minimax
@@ -681,6 +844,7 @@ impl Bot for PolicyAlphaBetaBot {
         let deadline = start + time_limit;
         let mut sim_board = board.clone();
         let mut best_move = legal_moves[0];
+        let root_hash = Self::full_hash(board);
 
         let mut depth = 1u8;
         while depth <= 20 {
@@ -689,7 +853,7 @@ impl Bot for PolicyAlphaBetaBot {
             }
 
             let mut time_exceeded = false;
-            let _score = self.negamax(
+            let score = self.negamax(
                 &mut sim_board,
                 depth,
                 0,
@@ -705,10 +869,16 @@ impl Bot for PolicyAlphaBetaBot {
                 break;
             }
 
-            if let Some(entry) = self.tt.get(&board.hash_val()) {
-                if let Some(bm) = entry.best_move {
-                    best_move = bm;
-                }
+            if let Some(bm) = self
+                .root_pv_move
+                .or_else(|| self.probe_tt(root_hash).and_then(|e| e.best_move))
+            {
+                best_move = bm;
+            }
+            self.root_pv_move = Some(best_move);
+
+            if score >= MATE_SCORE - 100 {
+                break;
             }
 
             depth += 1;

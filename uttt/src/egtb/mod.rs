@@ -58,6 +58,7 @@ pub struct EgtbDatabase {
     pub zobrist_constants: ZobristConstants,
     pub macro_prober: Option<macro_factored::MacroFactoredProber>,
     pub zfs_tier7_prober: Option<Arc<tier7_zfs::Tier7ZfsProber>>,
+    pub zfs_tier6_prober: Option<Arc<tier6_zfs::Tier6ZfsProber>>,
 }
 
 impl Default for EgtbDatabase {
@@ -92,6 +93,7 @@ impl EgtbDatabase {
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
             macro_prober: None,
             zfs_tier7_prober: None,
+            zfs_tier6_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -127,6 +129,7 @@ impl EgtbDatabase {
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
             macro_prober: None,
             zfs_tier7_prober: None,
+            zfs_tier6_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -151,6 +154,7 @@ impl EgtbDatabase {
             zobrist_constants: UltimateTicTacToeBoard::get_zobrist_constants(),
             macro_prober: None,
             zfs_tier7_prober: None,
+            zfs_tier6_prober: None,
         };
         let _ = db.load_mmap();
         db
@@ -269,6 +273,29 @@ impl EgtbDatabase {
             .and_then(|p| tier7_zfs::Tier7ZfsProber::new(&p).ok())
             .map(Arc::new);
 
+        // 5. Load exhaustive Tier 6 ZFS prober if available (direct-index < 50 ns)
+        let zfs_tier6_candidates = [
+            self.base_dir.join("tier6"),
+            PathBuf::from("/my-zraid/uttt/egtb/tier6"),
+            PathBuf::from("egtb/tier6"),
+        ];
+        self.zfs_tier6_prober = zfs_tier6_candidates
+            .into_iter()
+            .find(|p| {
+                p.join("manifest.json").exists()
+                    || std::fs::read_dir(p).ok().map_or(false, |mut d| {
+                        d.any(|e| {
+                            e.ok()
+                                .and_then(|f| f.file_name().into_string().ok())
+                                .map_or(false, |name| {
+                                    name.starts_with("tier6_orbit_") && name.ends_with(".bin")
+                                })
+                        })
+                    })
+            })
+            .and_then(|p| tier6_zfs::Tier6ZfsProber::new(&p).ok())
+            .map(Arc::new);
+
         self.entry_count = total_count + macro_count;
         Ok(self.entry_count)
     }
@@ -294,25 +321,46 @@ impl EgtbDatabase {
         board: &UltimateTicTacToeBoard,
         zobrist_constants: &ZobristConstants,
     ) -> Option<GameResult> {
-        // 1. Probe the high-speed macro-factored tablebase (< 30 ns, zero allocation)
-        // Automatically evaluates Tier 9, Tier 8, Tier 7, Tier 6, and macro wins
-        if let Some(ref mp) = self.macro_prober {
-            if let Some(res) = mp.probe_game_result(board) {
-                return Some(res);
+        // 0. Check immediate macro wins first
+        if macro_factored::check_subboard_win(board.x_supers) {
+            return Some(GameResult::P1Win);
+        }
+        if macro_factored::check_subboard_win(board.o_supers) {
+            return Some(GameResult::P2Win);
+        }
+
+        let k = board.get_resolved_count();
+
+        // 1. Dispatch to exhaustive ZFS direct-index tablebases first for Tier 7 and Tier 6
+        if k == 7 {
+            if let Some(ref zfs7) = self.zfs_tier7_prober {
+                if let Some(outcome) = zfs7.probe(board) {
+                    match outcome {
+                        EgtbOutcome::P1Win => return Some(GameResult::P1Win),
+                        EgtbOutcome::P2Win => return Some(GameResult::P2Win),
+                        EgtbOutcome::Draw => return Some(GameResult::Tie),
+                        EgtbOutcome::Unknown => {}
+                    }
+                }
+            }
+        } else if k == 6 {
+            if let Some(ref zfs6) = self.zfs_tier6_prober {
+                if let Some(outcome) = zfs6.probe(board) {
+                    match outcome {
+                        EgtbOutcome::P1Win => return Some(GameResult::P1Win),
+                        EgtbOutcome::P2Win => return Some(GameResult::P2Win),
+                        EgtbOutcome::Draw => return Some(GameResult::Tie),
+                        EgtbOutcome::Unknown => {}
+                    }
+                }
             }
         }
 
-        // 1b. Probe the exhaustive Tier 7 ZFS direct-index tablebase (< 15 ns)
-        if let Some(ref zfs) = self.zfs_tier7_prober {
-            if board.get_resolved_count() >= 7 {
-                if let Some(outcome) = zfs.probe(board) {
-                    return match outcome {
-                        EgtbOutcome::P1Win => Some(GameResult::P1Win),
-                        EgtbOutcome::P2Win => Some(GameResult::P2Win),
-                        EgtbOutcome::Draw => Some(GameResult::Tie),
-                        EgtbOutcome::Unknown => None,
-                    };
-                }
+        // 2. Probe the high-speed macro-factored tablebase (< 30 ns, zero allocation)
+        // Automatically evaluates Tier 9, Tier 8, and fallback Tier 7 / Tier 6
+        if let Some(ref mp) = self.macro_prober {
+            if let Some(res) = mp.probe_game_result(board) {
+                return Some(res);
             }
         }
 
@@ -320,12 +368,11 @@ impl EgtbDatabase {
             return None;
         }
 
-        let k = board.get_resolved_count();
         let canon = board.to_canonical();
         let (canonical_board, _) = SymmetryEngine::canonical_form(&canon, zobrist_constants);
         let canonical_hash = canonical_board.full_hash();
 
-        // 2. Probe the specific tier table directly by resolved subboard count k (legacy fallback)
+        // 3. Probe the specific tier table directly by resolved subboard count k (legacy fallback)
         if k < self.tier_mmaps.len() {
             if let Some(ref mmap) = self.tier_mmaps[k] {
                 let count = self.tier_counts[k];

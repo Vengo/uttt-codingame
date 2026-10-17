@@ -12,6 +12,7 @@ Features:
 import argparse
 import copy
 import json
+import math
 import os
 import shutil
 import sys
@@ -25,7 +26,11 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml.model import AlphaZeroResNet
-from ml.transformer_model import UTTTTransformer
+from ml.transformer_model import (
+    UTTTTransformer,
+    expand_transformer_depth,
+    infer_transformer_kwargs_from_state_dict,
+)
 from ml.dataset import UTTTEnv
 from ml.batched_mcts import run_batched_gpu_mcts
 from ml.replay_buffer import ContiguousStratifiedReplayBuffer
@@ -227,6 +232,7 @@ def run_champion_challenger(
     status_file: str = "ml/training_status.json",
     frontend_status: Optional[str] = "../uttt-frontend/training_status.json",
     test_mode: bool = False,
+    expand_layers: Optional[int] = None,
 ):
     total_eval_games = eval_pairs * 2
     if not test_mode:
@@ -264,15 +270,16 @@ def run_champion_challenger(
 
     initial_ckpt = "ml/model_checkpoint.pt"
 
-    # Load or initialize Champion model (Auto-detect Transformer vs ResNet)
+    # Load or initialize Champion model (Auto-detect Transformer vs ResNet and depth)
     target_path = champion_path if os.path.exists(champion_path) else (initial_ckpt if os.path.exists(initial_ckpt) else None)
     if target_path:
         state = torch.load(target_path, map_location=device, weights_only=False)
         sd = state["model_state_dict"] if (isinstance(state, dict) and "model_state_dict" in state) else state
         is_trans = any(k.startswith("transformer.") or k.startswith("sb_embed.") for k in sd.keys())
         if is_trans:
-            champion = UTTTTransformer().to(device)
-            arch_name = "UTTTTransformer (Vision Transformer)"
+            t_kwargs = infer_transformer_kwargs_from_state_dict(sd)
+            champion = UTTTTransformer(**t_kwargs).to(device)
+            arch_name = f"UTTTTransformer ({t_kwargs['num_layers']}L, d={t_kwargs['d_model']})"
         else:
             champion = AlphaZeroResNet(num_channels=64, num_res_blocks=4).to(device)
             arch_name = "AlphaZeroResNet (Residual CNN)"
@@ -306,9 +313,62 @@ def run_champion_challenger(
             "history": [],
         }
 
+    # Optional function-preserving Net2Net depth expansion (e.g. 4L -> 8L)
+    if expand_layers is not None and isinstance(champion, UTTTTransformer) and champion.num_layers < expand_layers:
+        old_l = champion.num_layers
+        champion = expand_transformer_depth(champion, expand_layers).to(device)
+        champion.eval()
+        torch.save(
+            {
+                "model_state_dict": champion.state_dict(),
+                "generation": meta["generation"],
+                "elo": meta["champion_elo"],
+            },
+            champion_path,
+        )
+        if not test_mode:
+            shutil.copyfile(champion_path, initial_ckpt)
+        print(
+            f"✨ Function-Preserving 2x Scaling: Expanded Champion UTTTTransformer from {old_l}L -> {expand_layers}L "
+            f"({sum(p.numel() for p in champion.parameters()):,} params) at exact Elo {meta['champion_elo']:.1f}"
+        )
+
     # Initialize Pure Rust Rayon MCTS Batch Worker for 240,000+ evals/s GPU Saturation
     print(f"Initializing RustMctsWorker with {parallel_games} parallel games (c_puct={c_puct})...")
     worker = RustMctsWorker(num_games=parallel_games, c_puct=c_puct)
+
+    # Load persisted Challenger if available and matching Champion architecture & depth
+    challenger: Optional[torch.nn.Module] = None
+    optimizer: Optional[torch.optim.AdamW] = None
+    if os.path.exists(challenger_path):
+        try:
+            chal_state = torch.load(challenger_path, map_location=device, weights_only=False)
+            chal_sd = (
+                chal_state["model_state_dict"]
+                if (isinstance(chal_state, dict) and "model_state_dict" in chal_state)
+                else chal_state
+            )
+            chal_is_trans = any(
+                k.startswith("transformer.") or k.startswith("sb_embed.") for k in chal_sd.keys()
+            )
+            if chal_is_trans == isinstance(champion, UTTTTransformer):
+                if chal_is_trans:
+                    chal_kwargs = infer_transformer_kwargs_from_state_dict(chal_sd)
+                    if chal_kwargs["num_layers"] == champion.num_layers and chal_kwargs["d_model"] == champion.d_model:
+                        challenger = copy.deepcopy(champion).to(device)
+                        challenger.load_state_dict(chal_sd)
+                        print(f"Loaded persisted Challenger model ({chal_kwargs['num_layers']}L) from {challenger_path}")
+                    else:
+                        print(
+                            f"Notice: Persisted Challenger depth ({chal_kwargs['num_layers']}L) differs from Champion ({champion.num_layers}L); starting from Champion."
+                        )
+                else:
+                    challenger = copy.deepcopy(champion).to(device)
+                    challenger.load_state_dict(chal_sd)
+                    print(f"Loaded persisted Challenger model from {challenger_path}")
+        except Exception as e:
+            print(f"Notice: Could not load persisted Challenger from {challenger_path} ({e}); starting from Champion.")
+            challenger = None
 
     for cycle in range(1, total_cycles + 1):
         print(f"\n============================================================")
@@ -343,15 +403,20 @@ def run_champion_challenger(
         total_evals_in_gen = 0
         total_finished_states = 0
 
+        vloss_k = max(1, min(4, 512 // max(parallel_games, 1)))
         for move_step in range(1, moves_per_cycle + 1):
             t_move_start = time.time()
-            step_evals = worker.run_mcts_search(model=champion, num_simulations=mcts_simulations, device=device)
+            step_evals = worker.run_mcts_search(
+                model=champion,
+                num_simulations=mcts_simulations,
+                device=device,
+                virtual_loss_k=vloss_k,
+            )
             total_evals_in_gen += step_evals
 
-            # Advance moves with auto temperature schedule:
-            # Plies <= 20: T = 1.0; Plies > 20: T = 0.5 (T NEVER drops to 0 in self-play!)
-            temp = 1.0 if move_step <= 20 else 0.5
-            new_finished = worker.advance_moves(temperature=temp)
+            # Advance moves with per-game temperature schedule in Rust (temperature=0.0):
+            # game.moves_played <= 16: T = 1.0; <= 28: T = 0.5; > 28: T = 0.15
+            new_finished = worker.advance_moves(temperature=0.0)
             total_finished_states += new_finished
 
             t_move_end = time.time()
@@ -387,10 +452,11 @@ def run_champion_challenger(
         # Phase 2: Train Challenger Model
         # ---------------------------------------------------------------------
         arch_title = type(champion).__name__
-        print(f"\n🧠 [Phase 2/3] Training Challenger {arch_title} ({train_epochs} epochs, lr={lr:.1e})...")
+        eff_lr = min(lr, 5e-5) if meta["generation"] >= 25 else lr
+        print(f"\n🧠 [Phase 2/3] Training Challenger {arch_title} ({train_epochs} epochs, lr={eff_lr:.1e})...")
         status_data.update({
             "phase": "training",
-            "phase_description": f"Training Challenger {arch_title} on {len(replay_buffer)} states (D4 augmented)",
+            "phase_description": f"Training Challenger {arch_title} on {len(replay_buffer)} states (D4 + recency weighted)",
             "replay_buffer_size": len(replay_buffer),
             "gpu_evals_per_sec": round(evals_per_sec),
             "gpu_telemetry": get_gpu_telemetry(device),
@@ -398,19 +464,45 @@ def run_champion_challenger(
         })
         write_status(status_file, frontend_status, status_data)
 
-        challenger = copy.deepcopy(champion).to(device)
+        if challenger is None:
+            challenger = copy.deepcopy(champion).to(device)
+            optimizer = None
+            print("  Initialized Challenger from current Champion weights.")
+        else:
+            challenger = challenger.to(device)
+            print("  Continuing training on persisted Challenger weights.")
         challenger.train()
-        optimizer = torch.optim.AdamW(challenger.parameters(), lr=lr, weight_decay=1e-4)
+
+        if optimizer is None:
+            optimizer = torch.optim.AdamW(challenger.parameters(), lr=eff_lr, weight_decay=1e-4)
+        else:
+            for pg in optimizer.param_groups:
+                pg["lr"] = eff_lr
+                pg["initial_lr"] = eff_lr
+
         scaler = torch.amp.GradScaler("cuda" if device == "cuda" else "cpu")
 
         steps_per_epoch = max(100, min(400, len(replay_buffer) // 128))
         total_train_steps = train_epochs * steps_per_epoch
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_train_steps, eta_min=lr * 0.1)
+        warmup_steps = max(10, total_train_steps // 10)
+
+        def lr_lambda(step: int) -> float:
+            if step < warmup_steps:
+                return 0.1 + 0.9 * (step / max(1, warmup_steps))
+            progress = (step - warmup_steps) / max(1, total_train_steps - warmup_steps)
+            progress = min(max(progress, 0.0), 1.0)
+            return 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
         last_loss = 0.0
+        last_kl = 0.0
+        last_v_loss = 0.0
 
         for ep in range(1, train_epochs + 1):
             ep_loss = 0.0
             ep_p = 0.0
+            ep_kl = 0.0
+            ep_ent = 0.0
             ep_v = 0.0
             for _ in range(steps_per_epoch):
                 x_b, m_b, p_b, v_b = replay_buffer.sample_batch(batch_size=128, augment_d4_prob=1.0)
@@ -424,6 +516,8 @@ def run_champion_challenger(
                     logits, value = challenger(x_b, m_b)
                     log_probs = F.log_softmax(logits, dim=-1)
                     p_loss = -torch.sum(p_b * log_probs) / x_b.size(0)
+                    p_ent = -torch.sum(p_b * torch.log(p_b.clamp(min=1e-8))) / x_b.size(0)
+                    p_kl = (p_loss - p_ent).clamp(min=0.0)
                     v_loss = F.mse_loss(value, v_b)
                     loss = p_loss + v_loss
 
@@ -436,11 +530,18 @@ def run_champion_challenger(
 
                 ep_loss += loss.item()
                 ep_p += p_loss.item()
+                ep_kl += p_kl.item()
+                ep_ent += p_ent.item()
                 ep_v += v_loss.item()
 
             last_loss = ep_loss / steps_per_epoch
+            last_kl = ep_kl / steps_per_epoch
+            last_v_loss = ep_v / steps_per_epoch
             cur_lr = scheduler.get_last_lr()[0]
-            print(f"  Epoch {ep}/{train_epochs} | Loss: {last_loss:.4f} (Policy: {ep_p/steps_per_epoch:.4f}, Value: {ep_v/steps_per_epoch:.4f}) | LR: {cur_lr:.2e}")
+            print(
+                f"  Epoch {ep}/{train_epochs} | Loss: {last_loss:.4f} "
+                f"(Policy CE: {ep_p/steps_per_epoch:.4f}, KL: {last_kl:.4f}, Entropy: {ep_ent/steps_per_epoch:.4f}, Value: {last_v_loss:.4f}) | LR: {cur_lr:.2e}"
+            )
 
         torch.save({"model_state_dict": challenger.state_dict()}, challenger_path)
 
@@ -506,6 +607,7 @@ def run_champion_challenger(
             meta["champion_elo"] = challenger_elo
             champion = copy.deepcopy(challenger).to(device)
             champion.eval()
+            optimizer = None
             torch.save({
                 "model_state_dict": champion.state_dict(),
                 "generation": meta["generation"],
@@ -534,8 +636,19 @@ def run_champion_challenger(
                     print(f"  Transformer active (runs FP16 AMP); baseline INT8 weights preserved at {rust_bin}")
             else:
                 print(f"🏆 [TEST MODE] Challenger crowned Champion Gen-{meta['generation']} (New Elo: {meta['champion_elo']:.1f})")
+        elif tourney_res.regressed:
+            print(
+                f"⚠️  REGRESSION DETECTED (Win Rate {win_rate*100:.2f}%, reg_p={tourney_res.regression_p_value:.4f} < 0.05)! "
+                f"Resetting Challenger back to Champion Gen-{meta['generation']} weights."
+            )
+            challenger = copy.deepcopy(champion).to(device)
+            optimizer = None
+            torch.save({"model_state_dict": challenger.state_dict()}, challenger_path)
         else:
-            print(f"🛡️  DEFENSE! Champion retains title ({tourney_res.promotion_reason})")
+            print(
+                f"🛡️  DEFENSE! Champion retains title ({tourney_res.promotion_reason}). "
+                f"Persisting Challenger weights (reg_p={tourney_res.regression_p_value:.4f} >= 0.05) to accumulate training next cycle."
+            )
 
         # Record history
         cycle_record = {
@@ -555,9 +668,13 @@ def run_champion_challenger(
             "decisive_win_rate": round(tourney_res.decisive_win_rate, 4),
             "double_win_ratio": tourney_res.double_win_ratio,
             "decisive_p_value": round(tourney_res.decisive_p_value, 5),
+            "regression_p_value": round(tourney_res.regression_p_value, 5),
+            "regressed": tourney_res.regressed,
             "promotion_reason": tourney_res.promotion_reason,
             "tournament_elapsed_sec": round(tourney_res.elapsed_seconds, 2),
             "loss": round(last_loss, 4),
+            "policy_kl": round(last_kl, 4),
+            "value_loss": round(last_v_loss, 4),
             "promoted": promoted,
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
@@ -602,6 +719,7 @@ if __name__ == "__main__":
     parser.add_argument("--status-file", type=str, default="ml/training_status.json")
     parser.add_argument("--frontend-status", type=str, default="../uttt-frontend/training_status.json")
     parser.add_argument("--test-mode", action="store_true", help="Run with isolated temporary checkpoints to protect production state")
+    parser.add_argument("--expand-layers", type=int, default=None, help="Function-preserving Net2Net depth expansion target layers (e.g. 8)")
     args = parser.parse_args()
 
     eval_pairs = args.eval_pairs
@@ -624,4 +742,5 @@ if __name__ == "__main__":
         status_file=args.status_file,
         frontend_status=args.frontend_status,
         test_mode=args.test_mode,
+        expand_layers=args.expand_layers,
     )

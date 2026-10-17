@@ -30,7 +30,10 @@ class UTTTTransformer(nn.Module):
     ):
         super().__init__()
         self.d_model = d_model
+        self.nhead = nhead
         self.num_layers = num_layers
+        self.dim_feedforward = dim_feedforward
+        self.dropout = dropout
 
         # Precompute bijective coordinate mapping: move_index (0..80) -> (row, col)
         grid_coords = torch.zeros(81, 2, dtype=torch.long)
@@ -136,3 +139,148 @@ class UTTTTransformer(nn.Module):
         value = self.value_head(cls_out)  # (B, 1)
 
         return logits, value
+
+
+def infer_transformer_kwargs_from_state_dict(sd: dict) -> dict:
+    """
+    Infers UTTTTransformer constructor kwargs (d_model, nhead, num_layers, dim_feedforward)
+    directly from a checkpoint state_dict.
+    """
+    d_model = int(sd["cls_token"].shape[-1]) if "cls_token" in sd else 128
+    dim_feedforward = (
+        int(sd["transformer.layers.0.linear1.weight"].shape[0])
+        if "transformer.layers.0.linear1.weight" in sd
+        else 4 * d_model
+    )
+    layer_indices = set()
+    for k in sd.keys():
+        if k.startswith("transformer.layers."):
+            parts = k.split(".")
+            if len(parts) > 2 and parts[2].isdigit():
+                layer_indices.add(int(parts[2]))
+    num_layers = (max(layer_indices) + 1) if layer_indices else 4
+    nhead = 4 if d_model % 4 == 0 else max(1, d_model // 32)
+    return {
+        "d_model": d_model,
+        "nhead": nhead,
+        "num_layers": num_layers,
+        "dim_feedforward": dim_feedforward,
+    }
+
+
+def expand_transformer_depth(model: UTTTTransformer, new_num_layers: int) -> UTTTTransformer:
+    """
+    Function-preserving Net2Net depth expansion for Pre-LN UTTTTransformer.
+    Expands `model` from `old_num_layers` to `new_num_layers` such that the expanded
+    model produces the exact same policy logits and value predictions at Step 0
+    while having non-zero input projections in all newly added layers so gradients flow
+    immediately on the first training step.
+    """
+    old_num_layers = model.num_layers
+    if new_num_layers <= old_num_layers:
+        return model
+
+    device = next(model.parameters()).device
+    dtype = next(model.parameters()).dtype
+    expanded = UTTTTransformer(
+        d_model=model.d_model,
+        nhead=getattr(model, "nhead", 4),
+        num_layers=new_num_layers,
+        dim_feedforward=getattr(model, "dim_feedforward", 4 * model.d_model),
+        dropout=getattr(model, "dropout", 0.0),
+    ).to(device=device, dtype=dtype)
+
+    with torch.no_grad():
+        expanded.input_proj.load_state_dict(model.input_proj.state_dict())
+        expanded.sb_embed.load_state_dict(model.sb_embed.state_dict())
+        expanded.sq_embed.load_state_dict(model.sq_embed.state_dict())
+        expanded.cls_token.copy_(model.cls_token)
+        expanded.norm.load_state_dict(model.norm.state_dict())
+        expanded.policy_head.load_state_dict(model.policy_head.state_dict())
+        expanded.value_head.load_state_dict(model.value_head.state_dict())
+
+        # Copy existing layers 0..old_num_layers directly
+        for idx in range(old_num_layers):
+            expanded.transformer.layers[idx].load_state_dict(
+                model.transformer.layers[idx].state_dict()
+            )
+
+        # Initialize newly added layers idx in old_num_layers..new_num_layers
+        # with non-zero inner projections copied from idx % old_num_layers and
+        # zero-initialized residual output projections (out_proj and linear2).
+        for idx in range(old_num_layers, new_num_layers):
+            src_layer = model.transformer.layers[idx % old_num_layers]
+            dst_layer = expanded.transformer.layers[idx]
+            dst_layer.load_state_dict(src_layer.state_dict())
+            nn.init.zeros_(dst_layer.self_attn.out_proj.weight)
+            if dst_layer.self_attn.out_proj.bias is not None:
+                nn.init.zeros_(dst_layer.self_attn.out_proj.bias)
+            nn.init.zeros_(dst_layer.linear2.weight)
+            if dst_layer.linear2.bias is not None:
+                nn.init.zeros_(dst_layer.linear2.bias)
+
+    return expanded
+
+
+def test_expand_transformer_depth_exact_equivalence():
+    """
+    Unit test for function-preserving 2x Transformer depth expansion:
+    - Verifies 4-layer -> 8-layer expansion doubles encoder layers and increases parameter count (~1.6M).
+    - Verifies forward-pass policy logits and values match the 4-layer model to < 1e-6.
+    - Verifies 2 AdamW optimizer steps produce non-zero parameter updates across all 8 layers.
+    """
+    torch.manual_seed(42)
+    model_4l = UTTTTransformer(d_model=128, nhead=4, num_layers=4, dim_feedforward=512)
+    model_4l.eval()
+
+    model_8l = expand_transformer_depth(model_4l, 8)
+    model_8l.eval()
+
+    params_4l = sum(p.numel() for p in model_4l.parameters())
+    params_8l = sum(p.numel() for p in model_8l.parameters())
+    assert model_8l.num_layers == 8
+    assert params_8l > params_4l * 1.8, f"Expected ~2x params, got {params_4l} -> {params_8l}"
+
+    sd_8l = model_8l.state_dict()
+    inferred = infer_transformer_kwargs_from_state_dict(sd_8l)
+    assert inferred["num_layers"] == 8
+    assert inferred["d_model"] == 128
+    assert inferred["dim_feedforward"] == 512
+
+    x = torch.randint(0, 2, (16, 5, 9, 9), dtype=torch.float32)
+    mask = torch.ones((16, 81), dtype=torch.float32)
+    with torch.no_grad():
+        logits_4, val_4 = model_4l(x, mask)
+        logits_8, val_8 = model_8l(x, mask)
+
+    max_logit_diff = (logits_4 - logits_8).abs().max().item()
+    max_val_diff = (val_4 - val_8).abs().max().item()
+    assert max_logit_diff < 1e-6, f"Logits diverged after expansion: {max_logit_diff}"
+    assert max_val_diff < 1e-6, f"Values diverged after expansion: {max_val_diff}"
+
+    # Verify gradient flow and non-zero updates across all 8 layers after 2 optimizer steps
+    model_8l.train()
+    opt = torch.optim.AdamW(model_8l.parameters(), lr=1e-4)
+    target_pi = torch.full((16, 81), 1.0 / 81.0, dtype=torch.float32)
+    target_v = torch.zeros((16, 1), dtype=torch.float32)
+
+    initial_layer_weights = [
+        layer.linear2.weight.detach().clone() for layer in model_8l.transformer.layers
+    ]
+    for _ in range(2):
+        opt.zero_grad()
+        lg, vl = model_8l(x, mask)
+        log_p = F.log_softmax(lg, dim=-1)
+        loss = -(target_pi * log_p).sum(dim=-1).mean() + F.mse_loss(vl, target_v)
+        loss.backward()
+        opt.step()
+
+    for idx, layer in enumerate(model_8l.transformer.layers):
+        diff = (layer.linear2.weight - initial_layer_weights[idx]).abs().max().item()
+        assert diff > 0.0, f"Layer {idx} did not update during training (diff={diff})"
+
+
+if __name__ == "__main__":
+    test_expand_transformer_depth_exact_equivalence()
+    print("test_expand_transformer_depth_exact_equivalence PASSED")
+

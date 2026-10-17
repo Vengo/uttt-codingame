@@ -155,24 +155,66 @@ class ContiguousStratifiedReplayBuffer:
                 tier=tier,
             )
 
+    @staticmethod
+    def _sample_ring_recency(
+        start: int,
+        count: int,
+        ptr: int,
+        capacity: int,
+        n: int,
+        recency_window: int = 120_000,
+        recent_share: float = 0.70,
+    ) -> np.ndarray:
+        """
+        Samples `n` indices from a ring-buffer slice `[start, start + count)`.
+        When `count > recency_window`, `recent_share` (default 70%) of samples are drawn
+        from the `recency_window` most recently inserted slots backward from `ptr`,
+        and the remaining `1 - recent_share` (30%) are drawn uniformly across all `count` slots.
+        """
+        if n <= 0:
+            return np.empty(0, dtype=np.int64)
+        if count > recency_window and recency_window > 0:
+            n_recent = int(round(n * recent_share))
+            n_uniform = n - n_recent
+            parts = []
+            if n_recent > 0:
+                offsets = np.random.randint(0, recency_window, size=n_recent)
+                recent_idx = start + ((ptr - 1 - offsets) % count)
+                parts.append(recent_idx)
+            if n_uniform > 0:
+                uniform_idx = np.random.randint(start, start + count, size=n_uniform)
+                parts.append(uniform_idx)
+            return np.concatenate(parts) if len(parts) > 1 else parts[0]
+        else:
+            return np.random.randint(start, start + count, size=n)
+
     def sample_batch(
         self,
         batch_size: int,
         apply_augmentation: bool = True,
         augment_d4_prob: float = 1.0,
+        recency_window: int = 120_000,
+        recent_share: float = 0.70,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Samples a stratified batch directly from contiguous memory.
+        Samples a stratified, recency-weighted batch directly from contiguous memory.
         Returns: (observations_float32, masks_float32, policies_float32, values_float32)
         """
         total = len(self)
         if total == 0:
             raise ValueError("Cannot sample from an empty ReplayBuffer")
 
-        # Allocate batch proportionally to actual populated counts to prevent oversampling tiny slices
-        p_gm = self.gm_count / total
-        p_deep = self.deep_draw_count / total
-        p_sp = self.self_play_count / total
+        # Allocate batch proportionally to actual populated counts, capping frozen GM bootstrap tier at <= 2% once buffer >= 200k
+        non_gm = self.deep_draw_count + self.self_play_count
+        if total >= 200_000 and non_gm > 0:
+            p_gm = min(self.gm_count / total, 0.02)
+            rem_p = 1.0 - p_gm
+            p_deep = rem_p * (self.deep_draw_count / non_gm)
+            p_sp = rem_p * (self.self_play_count / non_gm)
+        else:
+            p_gm = self.gm_count / total
+            p_deep = self.deep_draw_count / total
+            p_sp = self.self_play_count / total
 
         target_gm = int(round(batch_size * p_gm))
         target_deep = int(round(batch_size * p_deep))
@@ -202,13 +244,25 @@ class ContiguousStratifiedReplayBuffer:
             gm_indices = np.random.randint(self.gm_start, self.gm_start + self.gm_count, size=n_gm)
             indices.append(gm_indices)
         if n_deep > 0:
-            deep_indices = np.random.randint(
-                self.deep_draw_start, self.deep_draw_start + self.deep_draw_count, size=n_deep
+            deep_indices = self._sample_ring_recency(
+                self.deep_draw_start,
+                self.deep_draw_count,
+                self.deep_draw_ptr,
+                self.deep_draw_capacity,
+                n_deep,
+                recency_window=recency_window,
+                recent_share=recent_share,
             )
             indices.append(deep_indices)
         if n_sp > 0:
-            sp_indices = np.random.randint(
-                self.self_play_start, self.self_play_start + self.self_play_count, size=n_sp
+            sp_indices = self._sample_ring_recency(
+                self.self_play_start,
+                self.self_play_count,
+                self.self_play_ptr,
+                self.self_play_capacity,
+                n_sp,
+                recency_window=recency_window,
+                recent_share=recent_share,
             )
             indices.append(sp_indices)
 
@@ -373,3 +427,61 @@ class ReplayBufferDataset(Dataset):
             torch.from_numpy(b_pol[0]),
             torch.tensor(b_val[0], dtype=torch.float32),
         )
+
+
+def test_recency_weighted_sampling():
+    """
+    Unit test for recency-weighted replay buffer sampling and 2% GM tier cap:
+    - Populates a buffer with >= 200,000 total states so the 2% GM cap is active.
+    - Populates self_play beyond recency_window, tagging old slots with -1.0 and recent slots with +1.0.
+    - Verifies that recent slots are sampled at the expected rate (~70% + 30% * (recency_window / count))
+      and GM slots are capped at <= 2%.
+    """
+    np.random.seed(42)
+    buf = ContiguousStratifiedReplayBuffer(
+        capacity=300_000,
+        gm_ratio=0.10,
+        deep_draw_ratio=0.45,
+        self_play_ratio=0.45,
+    )
+    # Directly populate counts and values to test sampling distribution without loop overhead
+    buf.gm_count = 30_000
+    buf.gm_ptr = 0
+    buf.values[buf.gm_start : buf.gm_start + buf.gm_count, 0] = 0.0
+
+    buf.deep_draw_count = 70_000
+    buf.deep_draw_ptr = 70_000
+    buf.values[buf.deep_draw_start : buf.deep_draw_start + 50_000, 0] = -1.0
+    buf.values[buf.deep_draw_start + 50_000 : buf.deep_draw_start + 70_000, 0] = 1.0
+
+    # Test wraparound on self_play ring buffer: count = 120_000, capacity = 135_000
+    # Suppose ptr wrapped around to 10_000 with count = 120_000 and recency_window = 20_000:
+    # Recent 20,000 slots are [0..10_000) and [110_000..120_000) within the self_play slice.
+    buf.self_play_count = 120_000
+    buf.self_play_ptr = 10_000
+    sp_s = buf.self_play_start
+    buf.values[sp_s : sp_s + buf.self_play_count, 0] = -1.0
+    buf.values[sp_s : sp_s + 10_000, 0] = 1.0
+    buf.values[sp_s + 110_000 : sp_s + 120_000, 0] = 1.0
+
+    _, _, _, vals = buf.sample_batch(
+        batch_size=10_000,
+        apply_augmentation=False,
+        recency_window=20_000,
+        recent_share=0.70,
+    )
+
+    gm_share = float(np.mean(vals == 0.0))
+    recent_non_gm_share = float(np.mean(vals[vals != 0.0] == 1.0))
+
+    assert gm_share <= 0.025, f"Expected GM tier share <= 2.5%, got {gm_share:.4f}"
+    # Expected recent share in non-GM tiers: 0.70 + 0.30 * (20k/70k or 20k/120k) ~ 0.75 - 0.78
+    assert 0.72 <= recent_non_gm_share <= 0.82, (
+        f"Expected recent non-GM share in [0.72, 0.82], got {recent_non_gm_share:.4f}"
+    )
+
+
+if __name__ == "__main__":
+    test_recency_weighted_sampling()
+    print("test_recency_weighted_sampling PASSED")
+
